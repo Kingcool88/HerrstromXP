@@ -1,89 +1,49 @@
-# HerrstromXP V3
+# HerrstromXP V4
 
-Stabil GitHub Pages-app för barnens uppdrag, XP och belöningar.
+Stabil GitHub Pages-app med Firebase/Firestore-synk, barnsystem, smarta regler och statistikpanel.
 
-## Nytt i V3
+## Nytt i V4
 
-- Riktigt grafiskt adminläge istället för JSON-redigering.
-- Lägg till, ändra och ta bort uppdrag via formulär.
-- Lägg till, ändra och ta bort belöningar via formulär.
-- Lägg till och ändra barn, emoji, färg och XP-bank.
-- Godkänn eller neka uppgifter i föräldraläget.
-- Olika dagar per uppdrag och belöning.
-- XP-bank sparas, men dagens avklarade uppdrag och köpta belöningar nollställs vid ny dag.
-- Firebase/Firestore-synkning om secrets finns.
-- Lokalt fallback-läge om Firebase saknas.
-- Förberedelse för pushnotiser via Firebase Cloud Messaging.
+- Tydligare synkstatus: **Synkad** eller **Lokalt** med förklaring.
+- Push-händelser skapas både när barn skickar uppdrag för godkännande och när barn köper belöning.
+- XP-bank sparas mellan dagar.
+- Dagens klara uppdrag och köpta belöningar nollställs vid nytt datum.
+- Barnsystem: nivåer, achievements, streaks och avatar/emoji per barn.
+- Smarta regler i GUI:
+  - föräldragodkännande av valda uppdrag
+  - lås belöningar tills obligatoriska uppdrag är klara
+  - minsta antal uppdrag före belöning
+  - dagsbonus
+  - streakbonus
+  - helgbonus
+  - minus-XP-regel för framtida funktioner
+- Mobil/platta-anpassad layout.
+- Statistikpanel för barn och admin.
 
-## PIN
+## Få igång synk
 
-Standard PIN är:
+I GitHub repo: Settings → Secrets and variables → Actions. Lägg in dessa som **separata secrets**:
 
-```txt
-2468
-```
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_VAPID_KEY` om du vill aktivera push
 
-Den kan ändras i adminläget under **Inställningar**.
-
-## GitHub Pages
-
-Repo-namn i detta projekt är satt till:
-
-```txt
-HerrstromXP
-```
-
-Därför finns detta i `vite.config.js`:
-
-```js
-base: '/HerrstromXP/'
-```
-
-Om ditt repo heter något annat måste du ändra `base`.
-
-## GitHub Secrets
-
-Lägg in dessa under:
-
-**Settings → Secrets and variables → Actions → New repository secret**
-
-```txt
-VITE_FIREBASE_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN
-VITE_FIREBASE_PROJECT_ID
-VITE_FIREBASE_STORAGE_BUCKET
-VITE_FIREBASE_MESSAGING_SENDER_ID
-VITE_FIREBASE_APP_ID
-```
-
-För pushnotiser behövs också:
-
-```txt
-VITE_FIREBASE_VAPID_KEY
-```
-
-Den finns i Firebase:
-
-**Project settings → Cloud Messaging → Web Push certificates → Key pair**
-
-## Pushnotiser
-
-Appen kan registrera föräldraenheten för push och spara token i Firestore.
-
-För att faktiskt skicka push automatiskt när ett barn klickar “klar” på ett uppdrag behövs en liten serverdel. En färdig mall finns i:
-
-```txt
-firebase-functions/index.js
-```
-
-Körs med Firebase CLI senare:
-
-```bash
-cd firebase-functions
-npm install
-firebase deploy --only functions
-```
+Kör sedan om GitHub Actions. När appen är byggd med dessa kommer statusen uppe till höger visa **Synkad**.
 
 ## Firestore rules
 
-För enkel start finns öppna regler i `firestore.rules`. De är enkla för test hemma, men bör låsas med Firebase Auth om appen ska användas publikt.
+Klistra in `firestore.rules` i Firebase → Firestore Database → Rules. Reglerna är öppna för enkel familjeapp-test. För riktig publik app bör de låsas med Firebase Auth.
+
+## Pushnotiser
+
+Appen kan registrera en push-token på förälderns enhet och skapa `notificationRequests` i Firestore. För riktiga utskick behövs Cloud Functions. Mall finns i `firebase-functions/index.js`.
+
+## Automatisk midnatt-reset
+
+Den reset som finns i appen sker när appen öppnas efter datumbyte. Det räcker normalt i en familjeapp: XP sparas, men dagens klara uppdrag och köpta belöningar rensas.
+
+Serverstyrd midnatt-reset betyder att en Firebase Cloud Function körs vid midnatt även om ingen öppnar appen. Det är mer avancerat och behövs mest om man vill ha exakt serverlogik, rapporter eller push om missade uppgifter.

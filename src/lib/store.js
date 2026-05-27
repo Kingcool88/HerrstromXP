@@ -17,6 +17,9 @@ const firebaseConfig = () => ({
 })
 
 const todayKey = () => new Date().toLocaleDateString('sv-SE')
+const yesterdayKey = () => {
+  const d = new Date(); d.setDate(d.getDate() - 1); return d.toLocaleDateString('sv-SE')
+}
 
 const initialProgress = () => ({
   date: todayKey(),
@@ -24,38 +27,58 @@ const initialProgress = () => ({
   completed: {},
   pending: {},
   purchased: {},
+  achievements: {},
+  streaks: Object.fromEntries(defaultFamily.children.map(c => [c.id, { count: 0, lastFullDay: null }])),
   pushTokens: {},
   history: []
 })
 
+const mergeFamily = (family = {}) => ({
+  ...defaultFamily,
+  ...family,
+  rules: { ...defaultFamily.rules, ...(family.rules || {}) },
+  children: family.children || defaultFamily.children,
+  tasks: family.tasks || defaultFamily.tasks,
+  rewards: family.rewards || defaultFamily.rewards,
+  achievements: family.achievements || defaultFamily.achievements
+})
+
 const normalize = (data) => {
   const merged = { family: defaultFamily, progress: initialProgress(), ...(data || {}) }
-  merged.family = { ...defaultFamily, ...(merged.family || {}) }
-  merged.family.children ||= []
-  merged.family.tasks ||= []
-  merged.family.rewards ||= []
+  merged.family = mergeFamily(merged.family)
   merged.progress ||= initialProgress()
   merged.progress.xpBank ||= {}
   merged.progress.completed ||= {}
   merged.progress.pending ||= {}
   merged.progress.purchased ||= {}
+  merged.progress.achievements ||= {}
+  merged.progress.streaks ||= {}
   merged.progress.pushTokens ||= {}
   merged.progress.history ||= []
 
   for (const child of merged.family.children) {
     if (merged.progress.xpBank[child.id] === undefined) merged.progress.xpBank[child.id] = 0
+    if (!merged.progress.streaks[child.id]) merged.progress.streaks[child.id] = { count: 0, lastFullDay: null }
   }
 
   if (merged.progress.date !== todayKey()) {
-    const oldBank = merged.progress.xpBank || {}
-    const oldPushTokens = merged.progress.pushTokens || {}
-    const oldHistory = merged.progress.history || []
-    merged.progress = { ...initialProgress(), xpBank: { ...initialProgress().xpBank, ...oldBank }, pushTokens: oldPushTokens, history: oldHistory }
+    const old = merged.progress
+    merged.progress = {
+      ...initialProgress(),
+      xpBank: { ...initialProgress().xpBank, ...old.xpBank },
+      pushTokens: old.pushTokens || {},
+      achievements: old.achievements || {},
+      streaks: old.streaks || {},
+      history: old.history || [],
+      date: todayKey(),
+      lastResetFrom: old.date,
+      lastResetAt: new Date().toISOString()
+    }
   }
   return merged
 }
 
-const localKey = 'herrstromxp-v3-data'
+const localKey = 'herrstromxp-v4-data'
 let firebaseApp = null
 let firebaseDb = null
 let firebaseRef = null
@@ -64,7 +87,7 @@ export async function createStore(onChange) {
   if (hasFirebaseConfig()) {
     try {
       const { initializeApp, getApps } = await import('firebase/app')
-      const { getFirestore, doc, onSnapshot, setDoc, getDoc } = await import('firebase/firestore')
+      const { getFirestore, doc, onSnapshot, setDoc, getDoc, collection, addDoc, serverTimestamp } = await import('firebase/firestore')
       firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig())
       firebaseDb = getFirestore(firebaseApp)
       firebaseRef = doc(firebaseDb, 'families', defaultFamily.familyId)
@@ -76,13 +99,15 @@ export async function createStore(onChange) {
       })
       return {
         mode: 'firebase',
+        statusText: 'Synkad',
+        diagnostics: 'Firebase är aktiv. Data synkas via Firestore.',
         save: async (data) => setDoc(firebaseRef, normalize(data)),
-        notifyParent: async ({ childName, taskTitle }) => {
-          // För riktig push: se firebase-functions/index.js. Här sparas bara händelsen i Firestore.
+        notifyEvent: async (payload) => {
           try {
-            const { collection, addDoc, serverTimestamp } = await import('firebase/firestore')
             await addDoc(collection(firebaseDb, 'families', defaultFamily.familyId, 'notificationRequests'), {
-              childName, taskTitle, createdAt: serverTimestamp(), sent: false
+              ...payload,
+              createdAt: serverTimestamp(),
+              sent: false
             })
           } catch (err) { console.warn('Could not create notification request', err) }
         },
@@ -90,17 +115,25 @@ export async function createStore(onChange) {
       }
     } catch (err) {
       console.error('Firebase init failed, using local mode', err)
+      onChange(normalize(loadLocal()))
+      return localStore(`Firebase hittades men kunde inte starta: ${err.message}`)
     }
   }
 
   onChange(normalize(loadLocal()))
+  return localStore('Firebase-secrets saknas i builden. Appen sparar bara i denna webbläsare.')
+}
+
+function localStore(reason) {
   return {
     mode: 'local',
+    statusText: 'Lokalt',
+    diagnostics: reason,
     save: async (data) => {
       localStorage.setItem(localKey, JSON.stringify(normalize(data)))
-      onChange(normalize(data))
+      return normalize(data)
     },
-    notifyParent: async () => {},
+    notifyEvent: async () => {},
     unsubscribe: () => {}
   }
 }
@@ -110,7 +143,7 @@ export async function requestPushPermission(store, data) {
   if (!('Notification' in window)) return { ok: false, message: 'Den här webbläsaren stödjer inte notifieringar.' }
   if (!('serviceWorker' in navigator)) return { ok: false, message: 'Service worker saknas i webbläsaren.' }
   const vapidKey = import.meta.env.VITE_FIREBASE_VAPID_KEY
-  if (!vapidKey) return { ok: false, message: 'VITE_FIREBASE_VAPID_KEY saknas. Lägg in Web Push certificate key från Firebase som GitHub secret.' }
+  if (!vapidKey) return { ok: false, message: 'VITE_FIREBASE_VAPID_KEY saknas. Lägg Web Push certificate key som GitHub secret.' }
 
   const permission = await Notification.requestPermission()
   if (permission !== 'granted') return { ok: false, message: 'Notifieringar nekades i webbläsaren.' }
@@ -142,4 +175,4 @@ function loadLocal() {
   catch { return { family: defaultFamily, progress: initialProgress() } }
 }
 
-export { todayKey }
+export { todayKey, yesterdayKey }

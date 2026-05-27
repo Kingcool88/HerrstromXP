@@ -3,12 +3,8 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /families/{familyId} {
       allow read, write: if true;
-      match /pushTokens/{tokenId} {
-        allow read, write: if true;
-      }
-      match /notificationRequests/{requestId} {
-        allow read, write: if true;
-      }
+      match /notificationRequests/{requestId} { allow read, write: if true; }
+      match /pushTokens/{tokenId} { allow read, write: if true; }
     }
   }
 }

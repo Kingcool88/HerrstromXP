@@ -1,24 +1,28 @@
-// Mall för Firebase Cloud Functions v2.
-// Deployas separat med Firebase CLI om du vill ha riktiga pushnotiser.
-// Funktion: när ett barn skickar en uppgift för godkännande skapas ett dokument i
-// families/{familyId}/notificationRequests. Denna function skickar push till registrerade föräldraenheter.
-
-const { onDocumentCreated } = require('firebase-functions/v2/firestore')
+const functions = require('firebase-functions')
 const admin = require('firebase-admin')
 admin.initializeApp()
 
-exports.sendApprovalPush = onDocumentCreated('families/{familyId}/notificationRequests/{requestId}', async (event) => {
-  const familyId = event.params.familyId
-  const data = event.data.data()
-  const tokensSnap = await admin.firestore().collection('families').doc(familyId).collection('pushTokens').where('enabled', '==', true).get()
-  const tokens = tokensSnap.docs.map(d => d.id)
-  if (!tokens.length) return
-  const title = 'HerrstromXP: godkännande väntar'
-  const body = `${data.childName || 'Ett barn'} vill få godkänt: ${data.taskTitle || 'uppdrag'}`
-  await admin.messaging().sendEachForMulticast({
-    tokens,
-    notification: { title, body },
-    webpush: { fcmOptions: { link: '/' } }
+exports.sendParentNotifications = functions.firestore
+  .document('families/{familyId}/notificationRequests/{requestId}')
+  .onCreate(async (snap, context) => {
+    const data = snap.data()
+    const db = admin.firestore()
+    const tokensSnap = await db.collection('families').doc(context.params.familyId).collection('pushTokens').where('enabled','==',true).get()
+    const tokens = tokensSnap.docs.map(d => d.data().token).filter(Boolean)
+    if (!tokens.length) return snap.ref.update({ sent: false, reason: 'No push tokens' })
+
+    await admin.messaging().sendEachForMulticast({
+      tokens,
+      notification: {
+        title: data.title || 'HerrstromXP',
+        body: data.body || 'Ny händelse i HerrstromXP'
+      },
+      webpush: {
+        fcmOptions: { link: 'https://kingcool88.github.io/HerrstromXP/' }
+      }
+    })
+    return snap.ref.update({ sent: true, sentAt: admin.firestore.FieldValue.serverTimestamp() })
   })
-  await event.data.ref.update({ sent: true, sentAt: admin.firestore.FieldValue.serverTimestamp() })
-})
+
+// Valfri framtida server-reset. Klientappen gör redan reset när den öppnas efter datumbyte.
+exports.midnightResetNote = functions.pubsub.schedule('5 0 * * *').timeZone('Europe/Stockholm').onRun(async () => null)
