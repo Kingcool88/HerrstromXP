@@ -105,3 +105,5 @@ Veckodagar:
 Nuvarande Firestore-regler är enkla och öppna för att vara lätt att komma igång med. Det passar bäst för en privat/lågkänslig familjeapp med svårgissad URL och svårgissat `VITE_FAMILY_ID`.
 
 Vill du ha riktig inloggning kan nästa version byggas med Firebase Authentication och låsta regler per familj.
+
+Test
