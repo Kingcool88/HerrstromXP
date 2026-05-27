@@ -131,9 +131,58 @@ export default function App() {
     }
   }
 
+  const undoDailyBonusIfNeeded = (next, childId) => {
+    const bonusKey = `${childId}:daily-bonus:${todayKey()}`
+    if (!next.progress.completed?.[bonusKey]) return
+    const all = next.family.tasks.filter(t => t.days.includes(today()) && t.childIds.includes(childId))
+    const allDone = all.length > 0 && all.every(t => next.progress.completed[`${childId}:${t.id}`])
+    if (!allDone) {
+      const bonusXp = Number(rules.allDailyTasksBonusXp || 0)
+      delete next.progress.completed[bonusKey]
+      next.progress.xpBank[childId] = Math.max(0, (next.progress.xpBank[childId] || 0) - bonusXp)
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === childId && h.date === todayKey() && h.type === 'daily-bonus'))
+      if (next.progress.streaks?.[childId]?.lastFullDay === todayKey()) {
+        next.progress.streaks[childId] = { ...next.progress.streaks[childId], count: Math.max(0, (next.progress.streaks[childId].count || 0) - 1), lastFullDay: null }
+      }
+    }
+  }
+
+  const undoTask = async (task) => {
+    const key = `${selectedChild}:${task.id}`
+    const current = taskState(task.id)
+    if (current === 'open') return
+
+    const next = clone(data)
+
+    if (current === 'pending') {
+      delete next.progress.pending[key]
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === selectedChild && h.date === todayKey() && h.title === task.title && h.type === 'pending'))
+      next.progress.history.unshift({ id: uid(), date: todayKey(), childId: selectedChild, type: 'cancelled', title: `Avbröt: ${task.title}` })
+      setMessage('Uppdraget är avbrutet och väntar inte längre på godkännande.')
+    }
+
+    if (current === 'done') {
+      const completed = next.progress.completed[key]
+      const removeXp = Number(completed?.xp || xpForTask(task) || 0)
+      delete next.progress.completed[key]
+      next.progress.xpBank[selectedChild] = Math.max(0, (next.progress.xpBank[selectedChild] || 0) - removeXp)
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === selectedChild && h.date === todayKey() && h.title === task.title && ['task','approved'].includes(h.type)))
+      undoDailyBonusIfNeeded(next, selectedChild)
+      next.progress.history.unshift({ id: uid(), date: todayKey(), childId: selectedChild, type: 'undo-task', title: `Ångrade: ${task.title}`, xp: -removeXp })
+      setMessage(`Ångrat. ${removeXp} XP togs bort igen.`)
+    }
+
+    await save(next)
+  }
+
   const completeTask = async (task) => {
     const key = `${selectedChild}:${task.id}`
-    if (taskState(task.id) !== 'open') return
+    const current = taskState(task.id)
+    if (current !== 'open') {
+      await undoTask(task)
+      return
+    }
+
     const next = clone(data)
     const needsApproval = rules.requireParentApproval && task.requiresApproval && !admin
     if (needsApproval) {
@@ -256,8 +305,17 @@ export default function App() {
               const state = taskState(task.id)
               const points = xpForTask(task)
               return <button key={task.id} className={`task ${state}`} onClick={() => completeTask(task)}>
-                <div><h3>{task.title}</h3><p>{task.category || 'Uppdrag'} · {task.days.map(d=>dayNames[d]).join(', ')} {task.requiresApproval && <span> · godkännande</span>} {task.requiredBeforeRewards && <span> · krävs före belöning</span>}</p></div>
-                <strong>{state==='done'?'Klart':state==='pending'?'Väntar':`+${points} XP`}</strong>
+                <div className="taskText">
+                  <h3>{task.title}</h3>
+                  <div className="taskCardMeta">
+                    <span className="taskDays"><span className="metaIcon">📅</span>{task.days.map(d=>dayNames[d]).join(', ')}</span>
+                    {state === 'done' && task.requiresApproval && <span className="taskStatusBadge approved"><CheckCircle2 size={17}/> Godkänd</span>}
+                    {state === 'done' && !task.requiresApproval && <span className="taskStatusBadge approved"><CheckCircle2 size={17}/> Klar</span>}
+                    {state === 'pending' && <span className="taskStatusBadge pending"><Clock size={17}/> Väntar på godkännande</span>}
+                    {task.requiredBeforeRewards && state !== 'pending' && <span className="taskStatusBadge required"><Lock size={15}/> Krävs före belöning</span>}
+                  </div>
+                </div>
+                <strong>{state === 'open' ? `+${points} XP` : state === 'pending' ? 'Avbryt' : 'Ångra'}</strong>
               </button>
             })}
           </div>}
