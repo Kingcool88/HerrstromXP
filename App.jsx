@@ -131,9 +131,58 @@ export default function App() {
     }
   }
 
+  const undoDailyBonusIfNeeded = (next, childId) => {
+    const bonusKey = `${childId}:daily-bonus:${todayKey()}`
+    if (!next.progress.completed?.[bonusKey]) return
+    const all = next.family.tasks.filter(t => t.days.includes(today()) && t.childIds.includes(childId))
+    const allDone = all.length > 0 && all.every(t => next.progress.completed[`${childId}:${t.id}`])
+    if (!allDone) {
+      const bonusXp = Number(rules.allDailyTasksBonusXp || 0)
+      delete next.progress.completed[bonusKey]
+      next.progress.xpBank[childId] = Math.max(0, (next.progress.xpBank[childId] || 0) - bonusXp)
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === childId && h.date === todayKey() && h.type === 'daily-bonus'))
+      if (next.progress.streaks?.[childId]?.lastFullDay === todayKey()) {
+        next.progress.streaks[childId] = { ...next.progress.streaks[childId], count: Math.max(0, (next.progress.streaks[childId].count || 0) - 1), lastFullDay: null }
+      }
+    }
+  }
+
+  const undoTask = async (task) => {
+    const key = `${selectedChild}:${task.id}`
+    const current = taskState(task.id)
+    if (current === 'open') return
+
+    const next = clone(data)
+
+    if (current === 'pending') {
+      delete next.progress.pending[key]
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === selectedChild && h.date === todayKey() && h.title === task.title && h.type === 'pending'))
+      next.progress.history.unshift({ id: uid(), date: todayKey(), childId: selectedChild, type: 'cancelled', title: `Avbröt: ${task.title}` })
+      setMessage('Uppdraget är avbrutet och väntar inte längre på godkännande.')
+    }
+
+    if (current === 'done') {
+      const completed = next.progress.completed[key]
+      const removeXp = Number(completed?.xp || xpForTask(task) || 0)
+      delete next.progress.completed[key]
+      next.progress.xpBank[selectedChild] = Math.max(0, (next.progress.xpBank[selectedChild] || 0) - removeXp)
+      next.progress.history = (next.progress.history || []).filter(h => !(h.childId === selectedChild && h.date === todayKey() && h.title === task.title && ['task','approved'].includes(h.type)))
+      undoDailyBonusIfNeeded(next, selectedChild)
+      next.progress.history.unshift({ id: uid(), date: todayKey(), childId: selectedChild, type: 'undo-task', title: `Ångrade: ${task.title}`, xp: -removeXp })
+      setMessage(`Ångrat. ${removeXp} XP togs bort igen.`)
+    }
+
+    await save(next)
+  }
+
   const completeTask = async (task) => {
     const key = `${selectedChild}:${task.id}`
-    if (taskState(task.id) !== 'open') return
+    const current = taskState(task.id)
+    if (current !== 'open') {
+      await undoTask(task)
+      return
+    }
+
     const next = clone(data)
     const needsApproval = rules.requireParentApproval && task.requiresApproval && !admin
     if (needsApproval) {
@@ -266,7 +315,7 @@ export default function App() {
                     {task.requiredBeforeRewards && state !== 'pending' && <span className="taskStatusBadge required"><Lock size={15}/> Krävs före belöning</span>}
                   </div>
                 </div>
-                <strong>{state==='open'?`+${points} XP`:'Klart'}</strong>
+                <strong>{state === 'open' ? `+${points} XP` : state === 'pending' ? 'Avbryt' : 'Ångra'}</strong>
               </button>
             })}
           </div>}
@@ -332,9 +381,127 @@ function AdminPanel({ data, updateFamily, approveTask, rejectTask, pendingItems,
 
 function ApproveTab({ data, pendingItems, approveTask, rejectTask }) { return <div className="adminGridOne"><h3>Väntar på godkännande</h3>{pendingItems.length === 0 && <Empty text="Inget väntar på godkännande." />}{pendingItems.map(([key,p]) => { const c = data.family.children.find(x=>x.id===p.childId); const t = data.family.tasks.find(x=>x.id===p.taskId); return <div className="pending wide" key={key}><span><b>{c?.emoji} {c?.name}</b> vill få godkänt: {t?.title}</span><div><button onClick={()=>approveTask(key)}>Godkänn</button><button className="danger" onClick={()=>rejectTask(key)}>Neka</button></div></div> })}</div> }
 
-function TasksAdmin({ data, children, draftTask, setDraftTask, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till uppdrag" icon={<Plus/>}><Text label="Titel" value={draftTask.title} onChange={v=>setDraftTask({...draftTask,title:v})}/><Text label="Kategori" value={draftTask.category} onChange={v=>setDraftTask({...draftTask,category:v})}/><NumberField label="XP" value={draftTask.xp} onChange={v=>setDraftTask({...draftTask,xp:v})}/><Toggle label="Kräver godkännande" checked={draftTask.requiresApproval} onChange={v=>setDraftTask({...draftTask,requiresApproval:v})}/><Toggle label="Krävs innan belöningar" checked={draftTask.requiredBeforeRewards} onChange={v=>setDraftTask({...draftTask,requiredBeforeRewards:v})}/><DayPicker value={draftTask.days} onChange={days=>setDraftTask({...draftTask,days})}/><ChildPicker children={children} value={draftTask.childIds} onChange={childIds=>setDraftTask({...draftTask,childIds})}/><button onClick={()=>{ if(!draftTask.title.trim()) return; updateFamily(f=>{ f.tasks.push({...draftTask, title: draftTask.title.trim(), xp:Number(draftTask.xp)||0})}, 'Uppdrag tillagt ✅'); setDraftTask(blankTask(children.map(c=>c.id))) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Befintliga uppdrag">{data.family.tasks.map(task => <TaskRow key={task.id} task={task} children={children} onSave={(updated)=>updateFamily(f=>{ const i=f.tasks.findIndex(x=>x.id===task.id); f.tasks[i]=updated }, 'Uppdrag uppdaterat ✅')} onDelete={()=>updateFamily(f=>{f.tasks=f.tasks.filter(x=>x.id!==task.id)}, 'Uppdrag raderat')}/>)}</ListCard></div> }
+function TasksAdmin({ data, children, draftTask, setDraftTask, updateFamily }) {
+  const existingIds = data.family.tasks.map(t => t.id)
+  const addTask = () => {
+    const id = sanitizeId(draftTask.id || `task-${uid()}`)
+    if (!draftTask.title.trim()) return
+    if (data.family.tasks.some(t => t.id === id)) return alert('Det finns redan ett uppdrag med detta ID. Välj ett annat ID.')
+    updateFamily(f => {
+      f.tasks.push({
+        ...draftTask,
+        id,
+        title: draftTask.title.trim(),
+        xp: Number(draftTask.xp) || 0
+      })
+    }, 'Uppdrag tillagt ✅')
+    setDraftTask(blankTask(children.map(c => c.id)))
+  }
 
-function RewardsAdmin({ data, children, draftReward, setDraftReward, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till belöning" icon={<Gift/>}><Text label="Titel" value={draftReward.title} onChange={v=>setDraftReward({...draftReward,title:v})}/><Text label="Emoji" value={draftReward.emoji} onChange={v=>setDraftReward({...draftReward,emoji:v})}/><NumberField label="Kostar XP" value={draftReward.cost} onChange={v=>setDraftReward({...draftReward,cost:v})}/><Text label="Typ, skriv screen för skärmtid" value={draftReward.kind || ''} onChange={v=>setDraftReward({...draftReward,kind:v})}/><NumberField label="Minuter, om skärmtid" value={draftReward.minutes || 0} onChange={v=>setDraftReward({...draftReward,minutes:v})}/><Toggle label="Föräldern behöver bekräfta efter köp" checked={draftReward.requiresParentConfirm} onChange={v=>setDraftReward({...draftReward,requiresParentConfirm:v})}/><DayPicker value={draftReward.days} onChange={days=>setDraftReward({...draftReward,days})}/><ChildPicker children={children} value={draftReward.childIds} onChange={childIds=>setDraftReward({...draftReward,childIds})}/><button onClick={()=>{ if(!draftReward.title.trim()) return; updateFamily(f=>{ f.rewards.push({...draftReward, title: draftReward.title.trim(), cost:Number(draftReward.cost)||0})}, 'Belöning tillagd ✅'); setDraftReward(blankReward(children.map(c=>c.id))) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Befintliga belöningar">{data.family.rewards.map(reward => <RewardRow key={reward.id} reward={reward} children={children} onSave={(updated)=>updateFamily(f=>{ const i=f.rewards.findIndex(x=>x.id===reward.id); f.rewards[i]=updated }, 'Belöning uppdaterad ✅')} onDelete={()=>updateFamily(f=>{f.rewards=f.rewards.filter(x=>x.id!==reward.id)}, 'Belöning raderad')}/>)}</ListCard></div> }
+  return <div className="adminGrid adminComfort">
+    <EditorCard title="Lägg till uppdrag" icon={<Plus/>}>
+      <IdField
+        label="Uppdrags-ID"
+        value={draftTask.id}
+        existingIds={existingIds}
+        onChange={v => setDraftTask({...draftTask, id: v})}
+        help="Du kan skriva eget ID, t.ex. tandborstning-morgon. Använd små bokstäver, siffror och bindestreck."
+      />
+      <Text label="Titel" value={draftTask.title} onChange={v=>setDraftTask({...draftTask,title:v})}/>
+      <Text label="Kategori" value={draftTask.category} onChange={v=>setDraftTask({...draftTask,category:v})}/>
+      <NumberField label="XP" value={draftTask.xp} onChange={v=>setDraftTask({...draftTask,xp:v})}/>
+      <Toggle label="Kräver godkännande" checked={draftTask.requiresApproval} onChange={v=>setDraftTask({...draftTask,requiresApproval:v})}/>
+      <Toggle label="Krävs innan belöningar" checked={draftTask.requiredBeforeRewards} onChange={v=>setDraftTask({...draftTask,requiredBeforeRewards:v})}/>
+      <DayPicker value={draftTask.days} onChange={days=>setDraftTask({...draftTask,days})}/>
+      <ChildPicker children={children} value={draftTask.childIds} onChange={childIds=>setDraftTask({...draftTask,childIds})}/>
+      <button onClick={addTask}><Save size={17}/> Lägg till</button>
+    </EditorCard>
+
+    <ListCard title="Befintliga uppdrag">
+      {data.family.tasks.map(task => <TaskRow
+        key={task.id}
+        task={task}
+        allTasks={data.family.tasks}
+        children={children}
+        onSave={(updated)=>updateFamily(f=>{
+          const cleanId = sanitizeId(updated.id || task.id)
+          if (cleanId !== task.id && f.tasks.some(x => x.id === cleanId)) {
+            alert('Det finns redan ett uppdrag med detta ID. Ändringen sparades inte.')
+            return
+          }
+          const i=f.tasks.findIndex(x=>x.id===task.id)
+          f.tasks[i]={...updated, id: cleanId, xp:Number(updated.xp)||0}
+          if (cleanId !== task.id && f.rules?.requiredRewardTaskIds) {
+            f.rules.requiredRewardTaskIds = f.rules.requiredRewardTaskIds.map(x => x === task.id ? cleanId : x)
+          }
+        }, 'Uppdrag uppdaterat ✅')}
+        onDelete={()=>updateFamily(f=>{
+          f.tasks=f.tasks.filter(x=>x.id!==task.id)
+          if (f.rules?.requiredRewardTaskIds) f.rules.requiredRewardTaskIds = f.rules.requiredRewardTaskIds.filter(x => x !== task.id)
+        }, 'Uppdrag raderat')}
+      />)}
+    </ListCard>
+  </div>
+}
+
+function RewardsAdmin({ data, children, draftReward, setDraftReward, updateFamily }) {
+  const existingRewardIds = data.family.rewards.map(r => r.id)
+  const addReward = () => {
+    const id = sanitizeId(draftReward.id || `reward-${uid()}`)
+    if (!draftReward.title.trim()) return
+    if (data.family.rewards.some(r => r.id === id)) return alert('Det finns redan en belöning med detta ID. Välj ett annat ID.')
+    updateFamily(f=>{
+      f.rewards.push({
+        ...draftReward,
+        id,
+        title: draftReward.title.trim(),
+        cost: Number(draftReward.cost) || 0,
+        minutes: Number(draftReward.minutes) || 0
+      })
+    }, 'Belöning tillagd ✅')
+    setDraftReward(blankReward(children.map(c=>c.id)))
+  }
+
+  return <div className="adminGrid adminComfort">
+    <EditorCard title="Lägg till belöning" icon={<Gift/>}>
+      <IdField
+        label="Belönings-ID"
+        value={draftReward.id}
+        existingIds={existingRewardIds}
+        onChange={v=>setDraftReward({...draftReward,id:v})}
+        help="Eget ID gör det enklare att känna igen belöningen i historik och regler."
+      />
+      <Text label="Titel" value={draftReward.title} onChange={v=>setDraftReward({...draftReward,title:v})}/>
+      <Text label="Emoji" value={draftReward.emoji} onChange={v=>setDraftReward({...draftReward,emoji:v})}/>
+      <NumberField label="Kostar XP" value={draftReward.cost} onChange={v=>setDraftReward({...draftReward,cost:v})}/>
+      <Text label="Typ, skriv screen för skärmtid" value={draftReward.kind || ''} onChange={v=>setDraftReward({...draftReward,kind:v})}/>
+      <NumberField label="Minuter, om skärmtid" value={draftReward.minutes || 0} onChange={v=>setDraftReward({...draftReward,minutes:v})}/>
+      <Toggle label="Föräldern behöver bekräfta efter köp" checked={draftReward.requiresParentConfirm} onChange={v=>setDraftReward({...draftReward,requiresParentConfirm:v})}/>
+      <DayPicker value={draftReward.days} onChange={days=>setDraftReward({...draftReward,days})}/>
+      <ChildPicker children={children} value={draftReward.childIds} onChange={childIds=>setDraftReward({...draftReward,childIds})}/>
+      <button onClick={addReward}><Save size={17}/> Lägg till</button>
+    </EditorCard>
+
+    <ListCard title="Befintliga belöningar">
+      {data.family.rewards.map(reward => <RewardRow
+        key={reward.id}
+        reward={reward}
+        allRewards={data.family.rewards}
+        children={children}
+        onSave={(updated)=>updateFamily(f=>{
+          const cleanId = sanitizeId(updated.id || reward.id)
+          if (cleanId !== reward.id && f.rewards.some(x => x.id === cleanId)) {
+            alert('Det finns redan en belöning med detta ID. Ändringen sparades inte.')
+            return
+          }
+          const i=f.rewards.findIndex(x=>x.id===reward.id)
+          f.rewards[i]={...updated, id: cleanId, cost:Number(updated.cost)||0, minutes:Number(updated.minutes)||0}
+        }, 'Belöning uppdaterad ✅')}
+        onDelete={()=>updateFamily(f=>{f.rewards=f.rewards.filter(x=>x.id!==reward.id)}, 'Belöning raderad')}
+      />)}
+    </ListCard>
+  </div>
+}
 
 function ChildrenAdmin({ data, draftChild, setDraftChild, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till barn" icon={<UserRoundPlus/>}><Text label="Namn" value={draftChild.name} onChange={v=>setDraftChild({...draftChild,name:v})}/><Text label="Emoji/avatar" value={draftChild.emoji} onChange={v=>setDraftChild({...draftChild,emoji:v})}/><Text label="Nivå-emoji" value={draftChild.levelEmoji} onChange={v=>setDraftChild({...draftChild,levelEmoji:v})}/><Text label="Färg" value={draftChild.color} onChange={v=>setDraftChild({...draftChild,color:v})}/><button onClick={()=>{ if(!draftChild.name.trim()) return; updateFamily((f,p)=>{ f.children.push({...draftChild, name:draftChild.name.trim()}); p.xpBank[draftChild.id]=0 }, 'Barn tillagt ✅'); setDraftChild(blankChild()) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Barn och XP-bank">{data.family.children.map(c => <ChildRow key={c.id} child={c} xp={data.progress.xpBank[c.id]||0} onSave={(updated, xp)=>updateFamily((f,p)=>{ const i=f.children.findIndex(x=>x.id===c.id); f.children[i]=updated; p.xpBank[c.id]=Number(xp)||0 }, 'Barn uppdaterat ✅')} onDelete={()=>updateFamily((f,p)=>{ f.children=f.children.filter(x=>x.id!==c.id); delete p.xpBank[c.id] }, 'Barn raderat')}/>)}</ListCard></div> }
 
@@ -342,24 +509,33 @@ function RulesAdmin({ data, updateFamily }) {
   const [r, setR] = useState(data.family.rules)
   useEffect(()=>setR(data.family.rules), [data.family.rules])
   const set = (k,v) => setR(prev => ({...prev, [k]: v}))
-  return <div className="adminGrid"><EditorCard title="Valbara smarta regler" icon={<Sparkles/>}>
-    <Toggle label="Kräv föräldragodkännande för uppdrag som är markerade så" checked={r.requireParentApproval} onChange={v=>set('requireParentApproval',v)}/>
-    <Toggle label="Lås belöningar tills obligatoriska uppdrag är klara" checked={r.blockRewardsUntilRequiredDone} onChange={v=>set('blockRewardsUntilRequiredDone',v)}/>
-    <NumberField label="Minsta antal uppdrag före belöningar" value={r.minimumTasksBeforeRewards} onChange={v=>set('minimumTasksBeforeRewards',v)}/>
-    <Toggle label="Kräv tandborstning/läxor före belöningar" checked={r.requireSpecificTasksBeforeRewards} onChange={v=>set('requireSpecificTasksBeforeRewards',v)}/>
-    <Text label="Uppdrags-ID som krävs före belöningar, separera med komma" value={(r.requiredRewardTaskIds || []).join(', ')} onChange={v=>set('requiredRewardTaskIds', v.split(',').map(x=>x.trim()).filter(Boolean))}/>
-    <Toggle label="Bonus när alla dagens uppdrag är klara" checked={r.bonusAllDailyTasks} onChange={v=>set('bonusAllDailyTasks',v)}/>
-    <NumberField label="Bonus-XP för alla uppdrag" value={r.allDailyTasksBonusXp} onChange={v=>set('allDailyTasksBonusXp',v)}/>
-    <Toggle label="Streaks aktiverade" checked={r.streaksEnabled} onChange={v=>set('streaksEnabled',v)}/>
-    <NumberField label="Streakbonus var X:e fulla dag" value={r.streakBonusEveryDays} onChange={v=>set('streakBonusEveryDays',v)}/>
-    <NumberField label="Streakbonus XP" value={r.streakBonusXp} onChange={v=>set('streakBonusXp',v)}/>
-    <Toggle label="Helgbonus aktiverad" checked={r.weekendBonus} onChange={v=>set('weekendBonus',v)}/>
-    <NumberField label="Helgbonus procent" value={r.weekendBonusPercent} onChange={v=>set('weekendBonusPercent',v)}/>
-    <Toggle label="Max skärmtid per dag aktiverad" checked={r.maxScreenTimeEnabled} onChange={v=>set('maxScreenTimeEnabled',v)}/>
-    <NumberField label="Max skärmtid per dag, minuter" value={r.maxScreenMinutesPerDay} onChange={v=>set('maxScreenMinutesPerDay',v)}/>
-    <Toggle label="Tillåt minus-XP" checked={r.allowNegativeXp} onChange={v=>set('allowNegativeXp',v)}/>
-    <button onClick={()=>updateFamily(f=>{f.rules=r}, 'Smarta regler sparade ✅')}><Save size={17}/> Spara regler</button>
-  </EditorCard><EditorCard title="Vad betyder midnatt-reset?" icon={<Clock/>}><p className="muted">Nuvarande reset sker när appen öppnas efter datumbyte: dagens klara uppdrag och köpta belöningar rensas, men XP-bank, achievements, historik och streaks sparas. Serverstyrd reset betyder att Firebase Cloud Function kör reset även om ingen öppnar appen vid midnatt.</p></EditorCard></div>
+  return <div className="adminGrid adminComfort">
+    <EditorCard title="Valbara smarta regler" icon={<Sparkles/>}>
+      <Toggle label="Kräv föräldragodkännande för uppdrag som är markerade så" checked={r.requireParentApproval} onChange={v=>set('requireParentApproval',v)}/>
+      <Toggle label="Lås belöningar tills obligatoriska uppdrag är klara" checked={r.blockRewardsUntilRequiredDone} onChange={v=>set('blockRewardsUntilRequiredDone',v)}/>
+      <NumberField label="Minsta antal uppdrag före belöningar" value={r.minimumTasksBeforeRewards} onChange={v=>set('minimumTasksBeforeRewards',v)}/>
+      <Toggle label="Kräv valda uppdrag före belöningar, t.ex. tandborstning/läxor" checked={r.requireSpecificTasksBeforeRewards} onChange={v=>set('requireSpecificTasksBeforeRewards',v)}/>
+      <TaskRequirementPicker
+        tasks={data.family.tasks}
+        value={r.requiredRewardTaskIds || []}
+        onChange={ids=>set('requiredRewardTaskIds', ids)}
+      />
+      <Toggle label="Bonus när alla dagens uppdrag är klara" checked={r.bonusAllDailyTasks} onChange={v=>set('bonusAllDailyTasks',v)}/>
+      <NumberField label="Bonus-XP för alla uppdrag" value={r.allDailyTasksBonusXp} onChange={v=>set('allDailyTasksBonusXp',v)}/>
+      <Toggle label="Streaks aktiverade" checked={r.streaksEnabled} onChange={v=>set('streaksEnabled',v)}/>
+      <NumberField label="Streakbonus var X:e fulla dag" value={r.streakBonusEveryDays} onChange={v=>set('streakBonusEveryDays',v)}/>
+      <NumberField label="Streakbonus XP" value={r.streakBonusXp} onChange={v=>set('streakBonusXp',v)}/>
+      <Toggle label="Helgbonus aktiverad" checked={r.weekendBonus} onChange={v=>set('weekendBonus',v)}/>
+      <NumberField label="Helgbonus procent" value={r.weekendBonusPercent} onChange={v=>set('weekendBonusPercent',v)}/>
+      <Toggle label="Max skärmtid per dag aktiverad" checked={r.maxScreenTimeEnabled} onChange={v=>set('maxScreenTimeEnabled',v)}/>
+      <NumberField label="Max skärmtid per dag, minuter" value={r.maxScreenMinutesPerDay} onChange={v=>set('maxScreenMinutesPerDay',v)}/>
+      <Toggle label="Tillåt minus-XP" checked={r.allowNegativeXp} onChange={v=>set('allowNegativeXp',v)}/>
+      <button onClick={()=>updateFamily(f=>{f.rules=r}, 'Smarta regler sparade ✅')}><Save size={17}/> Spara regler</button>
+    </EditorCard>
+    <EditorCard title="Vad betyder midnatt-reset?" icon={<Clock/>}>
+      <p className="muted">Nuvarande reset sker när appen öppnas efter datumbyte: dagens klara uppdrag och köpta belöningar rensas, men XP-bank, achievements, historik och streaks sparas. Serverstyrd reset betyder att Firebase Cloud Function kör reset även om ingen öppnar appen vid midnatt.</p>
+    </EditorCard>
+  </div>
 }
 
 function SettingsPanel({ data, updateFamily, store }) { const [familyName, setFamilyName] = useState(data.family.familyName || 'HerrstromXP'); const [pin, setPin] = useState(data.family.parentPin || ''); const [theme, setTheme] = useState(data.family.theme || 'dark'); const [sound, setSound] = useState(data.family.soundEnabled !== false); const [confetti, setConfetti] = useState(data.family.confettiEnabled !== false); return <div className="adminGrid"><EditorCard title="Familjeinställningar" icon={<Settings/>}><Text label="Namn på app/familj" value={familyName} onChange={setFamilyName}/><Text label="Föräldra-PIN" value={pin} onChange={setPin}/><Text label="Tema, dark eller light" value={theme} onChange={setTheme}/><Toggle label="Ljud på" checked={sound} onChange={setSound}/><Toggle label="Konfetti på" checked={confetti} onChange={setConfetti}/><button onClick={()=>updateFamily(f=>{f.familyName=familyName; f.parentPin=pin; f.theme=theme; f.soundEnabled=sound; f.confettiEnabled=confetti}, 'Inställningar sparade ✅')}><Save size={17}/> Spara</button></EditorCard><EditorCard title="Synkning och push" icon={<Bell/>}><p className="muted">Synkstatus: <b>{store?.statusText}</b>. {store?.diagnostics}</p><Stat label="Läge" value={store?.mode === 'firebase' ? 'Firebase aktivt' : 'Lokalt läge'} /><Stat label="Familj ID" value={data.family.familyId} /></EditorCard></div> }
@@ -371,14 +547,43 @@ function StatsPanel({ data, selectedChild, admin=false }) {
   const best = data.family.children.reduce((top,c)=> Math.max(top, data.progress.streaks?.[c.id]?.count || 0), 0)
   const topWeek = leaderboard[0]
   return <div className="dashboard">
-    <div className="dashHero"><h2>Dashboard</h2><p>Veckostatistik, topplista, streaks och heatmap.</p></div>
+    <div className="dashHero"><h2>Dashboard</h2><p>Veckostatistik, topplista, streaks och tydligare heatmap.</p></div>
     <div className="dashCards">
       <div className="gameCard"><span>🏆</span><b>{topWeek?.name || '-'}</b><small>Mest XP totalt just nu</small></div>
       <div className="gameCard"><span>🔥</span><b>{best} dagar</b><small>Bästa streak</small></div>
       <div className="gameCard"><span>🎮</span><b>{screenMinutesToday(data)} min</b><small>Köpt skärmtid idag</small></div>
     </div>
     <div className="leaderboard"><h3>Topplista</h3>{leaderboard.map((c,i)=><div className="leaderRow" key={c.id}><strong>#{i+1}</strong><span>{c.emoji} {c.name}</span><em>{data.progress.xpBank[c.id]||0} XP</em></div>)}</div>
-    <div className="statsGrid">{children.map(c => { const s = makeStats(data, c.id); return <div className="statCard" key={c.id} style={{'--accent': c.color}}><div className="statHero"><span>{c.emoji}</span><div><h3>{c.name}</h3><p>Nivå {level(data.progress.xpBank[c.id] || 0)}</p></div></div><Stat label="XP-bank" value={data.progress.xpBank[c.id] || 0}/><Stat label="Uppdrag totalt" value={s.tasksTotal}/><Stat label="Uppdrag senaste 7 dagar" value={s.tasksWeek}/><Stat label="Belöningar köpta" value={s.rewardsTotal}/><Stat label="Achievements" value={s.achievements}/><Stat label="Streak" value={`${s.streak} dagar`}/><h4>Chores heatmap</h4><div className="heatmap">{weekDays.map(d=>{ const count=s.byDate[d]||0; return <span key={d} className={`heat h${Math.min(4,count)}`} title={`${d}: ${count} uppdrag`}><small>{d.slice(5)}</small></span> })}</div><div className="miniHistory">{data.progress.history.filter(h=>h.childId===c.id).slice(0,6).map(h=><div key={h.id}><span>{h.type}</span><b>{h.title}</b><em>{h.xp ? `+${h.xp} XP` : h.cost ? `-${h.cost} XP` : ''}</em></div>)}</div></div> })}</div>
+    <div className="statsGrid">{children.map(c => {
+      const s = makeStats(data, c.id)
+      return <div className="statCard" key={c.id} style={{'--accent': c.color}}>
+        <div className="statHero"><span>{c.emoji}</span><div><h3>{c.name}</h3><p>Nivå {level(data.progress.xpBank[c.id] || 0)}</p></div></div>
+        <Stat label="XP-bank" value={data.progress.xpBank[c.id] || 0}/>
+        <Stat label="Uppdrag totalt" value={s.tasksTotal}/>
+        <Stat label="Uppdrag senaste 7 dagar" value={s.tasksWeek}/>
+        <Stat label="Belöningar köpta" value={s.rewardsTotal}/>
+        <Stat label="Achievements" value={s.achievements}/>
+        <Stat label="Streak" value={`${s.streak} dagar`}/>
+        <h4>Chores heatmap</h4>
+        <p className="heatmapHint">Varje ruta visar hur många uppdrag som blev klara den dagen.</p>
+        <div className="heatmap heatmapReadable">
+          {weekDays.map(d=>{
+            const count=s.byDate[d]||0
+            return <span key={d} className={`heat h${Math.min(4,count)}`} title={`${d}: ${count} uppdrag`}>
+              <small>{d.slice(5)}</small>
+              <b>{count}</b>
+            </span>
+          })}
+        </div>
+        <div className="miniHistory">
+          {(data.progress.history || []).filter(h=>h.childId===c.id).slice(0,6).map(h=><div key={h.id}>
+            <span>{historyLabel(h.type)}</span>
+            <b>{h.title}</b>
+            <em>{h.xp ? `${h.xp > 0 ? '+' : ''}${h.xp} XP` : h.cost ? `-${h.cost} XP` : ''}</em>
+          </div>)}
+        </div>
+      </div>
+    })}</div>
   </div>
 }
 
@@ -391,12 +596,110 @@ function makeStats(data, childId) {
 }
 function lastDays(n){ return Array.from({length:n},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(n-1-i)); return d.toLocaleDateString('sv-SE') }) }
 function screenMinutesToday(data){ return Object.values(data.progress.purchased || {}).reduce((sum,p)=>{ const r=data.family.rewards.find(x=>x.id===p.rewardId); return sum + (r?.kind==='screen' ? Number(r.minutes||0) : 0) },0) }
-function TaskRow({ task, children, onSave, onDelete }) { const [open, setOpen] = useState(false); const [d, setD] = useState(task); useEffect(()=>setD(task), [task.id]); return <div className="editRow"><div className="rowTop"><b>{task.title}</b><span>{task.xp} XP · {task.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>{open && <div className="rowEdit"><Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/><Text label="Kategori" value={d.category} onChange={v=>setD({...d,category:v})}/><NumberField label="XP" value={d.xp} onChange={v=>setD({...d,xp:v})}/><Toggle label="Kräver godkännande" checked={d.requiresApproval} onChange={v=>setD({...d,requiresApproval:v})}/><Toggle label="Krävs innan belöningar" checked={d.requiredBeforeRewards} onChange={v=>setD({...d,requiredBeforeRewards:v})}/><DayPicker value={d.days} onChange={days=>setD({...d,days})}/><ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/><div className="actions"><button onClick={()=>{onSave({...d, xp:Number(d.xp)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div>}</div> }
-function RewardRow({ reward, children, onSave, onDelete }) { const [open, setOpen] = useState(false); const [d, setD] = useState(reward); useEffect(()=>setD(reward), [reward.id]); return <div className="editRow"><div className="rowTop"><b>{reward.emoji} {reward.title}</b><span>{reward.cost} XP · {reward.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>{open && <div className="rowEdit"><Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/><Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/><NumberField label="Kostar XP" value={d.cost} onChange={v=>setD({...d,cost:v})}/><Text label="Typ, screen = skärmtid" value={d.kind || ''} onChange={v=>setD({...d,kind:v})}/><NumberField label="Minuter" value={d.minutes || 0} onChange={v=>setD({...d,minutes:v})}/><Toggle label="Förälder bekräftar köp" checked={d.requiresParentConfirm} onChange={v=>setD({...d,requiresParentConfirm:v})}/><DayPicker value={d.days} onChange={days=>setD({...d,days})}/><ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/><div className="actions"><button onClick={()=>{onSave({...d, cost:Number(d.cost)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div>}</div> }
+function TaskRow({ task, allTasks=[], children, onSave, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [d, setD] = useState(task)
+  useEffect(()=>setD(task), [task.id])
+  return <div className="editRow">
+    <div className="rowTop"><b>{task.title}</b><span>{task.id} · {task.xp} XP · {task.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>
+    {open && <div className="rowEdit">
+      <IdField label="Uppdrags-ID" value={d.id} existingIds={allTasks.filter(x=>x.id!==task.id).map(x=>x.id)} onChange={v=>setD({...d,id:v})} help="Ändra helst ID innan uppdraget har använts mycket." />
+      <Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/>
+      <Text label="Kategori" value={d.category} onChange={v=>setD({...d,category:v})}/>
+      <NumberField label="XP" value={d.xp} onChange={v=>setD({...d,xp:v})}/>
+      <Toggle label="Kräver godkännande" checked={d.requiresApproval} onChange={v=>setD({...d,requiresApproval:v})}/>
+      <Toggle label="Krävs innan belöningar" checked={d.requiredBeforeRewards} onChange={v=>setD({...d,requiredBeforeRewards:v})}/>
+      <DayPicker value={d.days} onChange={days=>setD({...d,days})}/>
+      <ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/>
+      <div className="actions"><button onClick={()=>{onSave({...d, xp:Number(d.xp)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div>
+    </div>}
+  </div>
+}
+function RewardRow({ reward, allRewards=[], children, onSave, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [d, setD] = useState(reward)
+  useEffect(()=>setD(reward), [reward.id])
+  return <div className="editRow">
+    <div className="rowTop"><b>{reward.emoji} {reward.title}</b><span>{reward.id} · {reward.cost} XP · {reward.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>
+    {open && <div className="rowEdit">
+      <IdField label="Belönings-ID" value={d.id} existingIds={allRewards.filter(x=>x.id!==reward.id).map(x=>x.id)} onChange={v=>setD({...d,id:v})} help="Eget ID gör belöningen enklare att hitta senare." />
+      <Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/>
+      <Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/>
+      <NumberField label="Kostar XP" value={d.cost} onChange={v=>setD({...d,cost:v})}/>
+      <Text label="Typ, screen = skärmtid" value={d.kind || ''} onChange={v=>setD({...d,kind:v})}/>
+      <NumberField label="Minuter" value={d.minutes || 0} onChange={v=>setD({...d,minutes:v})}/>
+      <Toggle label="Förälder bekräftar köp" checked={d.requiresParentConfirm} onChange={v=>setD({...d,requiresParentConfirm:v})}/>
+      <DayPicker value={d.days} onChange={days=>setD({...d,days})}/>
+      <ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/>
+      <div className="actions"><button onClick={()=>{onSave({...d, cost:Number(d.cost)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div>
+    </div>}
+  </div>
+}
 function ChildRow({ child, xp, onSave, onDelete }) { const [d, setD] = useState(child); const [bank, setBank] = useState(xp); return <div className="editRow always"><div className="rowEdit compact"><Text label="Namn" value={d.name} onChange={v=>setD({...d,name:v})}/><Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/><Text label="Nivå-emoji" value={d.levelEmoji} onChange={v=>setD({...d,levelEmoji:v})}/><Text label="Färg" value={d.color} onChange={v=>setD({...d,color:v})}/><NumberField label="XP-bank" value={bank} onChange={setBank}/><div className="actions"><button onClick={()=>onSave(d, bank)}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div></div> }
 function level(xp) { return Math.max(1, Math.floor(Number(xp || 0) / 100) + 1) }
 function EditorCard({ title, icon, children }) { return <div className="editorCard"><h3>{icon}{title}</h3>{children}</div> }
 function ListCard({ title, children }) { return <div className="listCard"><h3>{title}</h3>{children}</div> }
+function sanitizeId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/å/g, 'a')
+    .replace(/ä/g, 'a')
+    .replace(/ö/g, 'o')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `id-${uid()}`
+}
+
+function historyLabel(type) {
+  return ({
+    task: 'Klar',
+    approved: 'Godkänd',
+    pending: 'Väntar',
+    rejected: 'Nekad',
+    reward: 'Belöning',
+    cancelled: 'Avbruten',
+    'undo-task': 'Ångrad',
+    achievement: 'Achievement',
+    'daily-bonus': 'Dagsbonus',
+    'streak-bonus': 'Streak'
+  })[type] || type
+}
+
+function IdField({ label, value, existingIds=[], onChange, help }) {
+  const duplicate = existingIds.includes(value)
+  return <label className={`field idField ${duplicate ? 'hasError' : ''}`}>
+    <span>{label}</span>
+    <div className="idInputRow">
+      <input value={value ?? ''} onChange={e=>onChange(e.target.value)} placeholder="t.ex. tandborstning-morgon" />
+      {existingIds.length > 0 && <select value="" onChange={e=>e.target.value && onChange(e.target.value)}>
+        <option value="">Välj befintligt ID…</option>
+        {existingIds.map(id => <option key={id} value={id}>{id}</option>)}
+      </select>}
+    </div>
+    <small>{duplicate ? 'Detta ID finns redan.' : help}</small>
+  </label>
+}
+
+function TaskRequirementPicker({ tasks, value=[], onChange }) {
+  const toggle = id => onChange(value.includes(id) ? value.filter(x=>x!==id) : [...value, id])
+  return <div className="picker taskRequirementPicker">
+    <span>Uppdrag som måste vara klara före belöningar</span>
+    <select value="" onChange={e=>e.target.value && toggle(e.target.value)}>
+      <option value="">Välj uppdrags-ID…</option>
+      {tasks.map(t => <option key={t.id} value={t.id}>{t.id} — {t.title}</option>)}
+    </select>
+    <div className="selectedIds">
+      {value.length === 0 && <em>Inga valda uppdrag.</em>}
+      {value.map(id => {
+        const task = tasks.find(t => t.id === id)
+        return <button type="button" key={id} className="idChip" onClick={()=>toggle(id)} title="Klicka för att ta bort">
+          {task?.title || id} <small>{id}</small> ×
+        </button>
+      })}
+    </div>
+  </div>
+}
+
 function Text({ label, value, onChange }) { return <label className="field"><span>{label}</span><input value={value ?? ''} onChange={e=>onChange(e.target.value)}/></label> }
 function NumberField({ label, value, onChange }) { return <label className="field"><span>{label}</span><input type="number" value={value ?? 0} onChange={e=>onChange(Number(e.target.value))}/></label> }
 function Toggle({ label, checked, onChange }) { return <label className="toggle"><input type="checkbox" checked={!!checked} onChange={e=>onChange(e.target.checked)}/><span>{label}</span></label> }

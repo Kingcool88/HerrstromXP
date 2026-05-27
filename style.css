@@ -101,3 +101,248 @@
     white-space: normal;
   }
 }
+
+
+/* V5.2: ångra/avbryt och lite mer balanserad textstorlek */
+.taskCardMeta {
+  font-size: 0.94rem;
+}
+
+.taskStatusBadge {
+  font-size: 0.86rem;
+  padding: 6px 12px;
+}
+
+.taskDays {
+  font-size: 0.94rem;
+}
+
+.task strong,
+.reward strong {
+  font-size: 0.92rem;
+  padding: 9px 12px;
+}
+
+.reward p,
+.task p,
+.childCard small,
+.stat span {
+  font-size: 0.92rem;
+}
+
+.hero p {
+  font-size: 17px;
+}
+
+.task.done strong {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #fde68a !important;
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.22);
+}
+
+.task.pending strong {
+  background: rgba(15, 23, 42, 0.92) !important;
+  color: #fde68a !important;
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.22);
+}
+
+@media (max-width: 650px) {
+  .task h3,
+  .reward h3 {
+    font-size: 18px;
+  }
+
+  .taskCardMeta,
+  .taskDays {
+    font-size: 0.88rem;
+  }
+
+  .taskStatusBadge {
+    font-size: 0.8rem;
+  }
+
+  .task strong,
+  .reward strong {
+    font-size: 0.86rem;
+  }
+}
+
+/* V5.3: tydligare statistik, luftigare admin och egna ID */
+.adminPanel,
+.adminComfort,
+.adminGrid,
+.adminGridOne {
+  gap: 18px !important;
+}
+
+.adminPanel .editorCard,
+.adminPanel .listCard {
+  padding: 18px !important;
+  border-radius: 24px !important;
+}
+
+.adminPanel .field,
+.adminPanel .toggle,
+.adminPanel .picker {
+  margin-bottom: 14px;
+}
+
+.adminPanel .field span,
+.adminPanel .picker > span,
+.adminPanel .toggle span {
+  line-height: 1.35;
+}
+
+.adminPanel input,
+.adminPanel select {
+  min-height: 44px;
+}
+
+.idField small {
+  display: block;
+  margin-top: 7px;
+  color: #93c5fd;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.idField.hasError input {
+  border-color: #fb7185 !important;
+  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.18);
+}
+
+.idField.hasError small {
+  color: #fecdd3;
+}
+
+.idInputRow {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 0.75fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.idInputRow select,
+.taskRequirementPicker select {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.selectedIds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 10px;
+}
+
+.selectedIds em {
+  color: #cbd5e1;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.idChip {
+  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  background: rgba(37, 99, 235, 0.18) !important;
+  color: #dbeafe !important;
+  border-radius: 999px !important;
+  padding: 8px 12px !important;
+  font-weight: 900 !important;
+}
+
+.idChip small {
+  color: #93c5fd;
+  margin-left: 5px;
+  font-weight: 800;
+}
+
+.heatmapHint {
+  margin: -2px 0 8px;
+  color: #cbd5e1;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  font-weight: 750;
+}
+
+.heatmapReadable {
+  grid-template-columns: repeat(7, minmax(58px, 1fr));
+  gap: 9px;
+}
+
+.heatmapReadable .heat {
+  min-height: 58px;
+  height: auto;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 3px;
+  padding: 8px 5px;
+  background: linear-gradient(180deg, #1e293b, #0f172a);
+  border: 1px solid #475569;
+  color: #f8fafc;
+  box-shadow: inset 0 0 14px rgba(255,255,255,0.03), 0 8px 18px rgba(0,0,0,0.18);
+}
+
+.heatmapReadable .heat small {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  font-weight: 900;
+}
+
+.heatmapReadable .heat b {
+  font-size: 1.25rem;
+  line-height: 1;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(255,255,255,0.18);
+}
+
+.heatmapReadable .heat.h1 { background: linear-gradient(180deg, #064e3b, #022c22); border-color: #10b981; }
+.heatmapReadable .heat.h2 { background: linear-gradient(180deg, #15803d, #064e3b); border-color: #22c55e; }
+.heatmapReadable .heat.h3 { background: linear-gradient(180deg, #22c55e, #15803d); border-color: #86efac; }
+.heatmapReadable .heat.h4 { background: linear-gradient(180deg, #facc15, #f97316); border-color: #fde68a; }
+.heatmapReadable .heat.h4 small,
+.heatmapReadable .heat.h4 b { color: #111827; text-shadow: none; }
+
+.miniHistory div {
+  background: linear-gradient(180deg, #111827, #0f172a) !important;
+  border: 1px solid #334155;
+  color: #f8fafc !important;
+  min-height: 42px;
+  align-items: center;
+}
+
+.miniHistory span {
+  color: #93c5fd !important;
+  font-weight: 900;
+}
+
+.miniHistory b {
+  color: #e5e7eb !important;
+}
+
+.miniHistory em {
+  color: #22c55e !important;
+}
+
+@media (max-width: 650px) {
+  .idInputRow {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmapReadable {
+    grid-template-columns: repeat(4, minmax(58px, 1fr));
+  }
+
+  .heatmapReadable .heat {
+    min-height: 54px;
+  }
+
+  .adminPanel .editorCard,
+  .adminPanel .listCard {
+    padding: 15px !important;
+  }
+}
