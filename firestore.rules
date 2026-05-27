@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Enkel familje-app utan inloggning.
+    // Använd ett svårt VITE_FAMILY_ID om länken inte skall vara gissningsbar.
+    match /families/{familyId} {
+      allow read, write: if true;
+    }
+  }
+}
