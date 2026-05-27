@@ -1,109 +1,76 @@
-# Barnens Uppdrag – GitHub Pages + Firebase Sync
+# HerrstromXP V2
 
-En fristående chore/reward-hemsida för två barn. Den är byggd som en statisk React/Vite-app för GitHub Pages, men kan synka mellan flera mobiler/surfplattor via Firebase Firestore.
+Stabil React/Vite-version för GitHub Pages med XP, två barn, belöningar, daglig reset och valfri Firebase/Firestore-synkning.
 
-## Funktioner
+## Viktigt
 
-- Två barn med egna färger/avatarer
-- Uppgifter per barn och veckodag
-- XP per uppgift och dagsbonus när alla uppgifter är klara
-- XP-bank som följer barnet över tid
-- Mål/belöningar som köps för XP
-- Olika mål per veckodag, t.ex. TV-spel på fredag/lördag/söndag
-- Dagens köpta mål nollställs automatiskt nästa datum
-- Backup/export/import
-- JSON-editor direkt i appen
-- GitHub Actions-deploy till GitHub Pages
-- Fungerar lokalt utan Firebase, men då sparas allt bara i webbläsaren
+`index.html` måste peka på:
 
-## Snabbstart lokalt
-
-```bash
-npm install
-npm run dev
+```html
+<script type="module" src="/src/main.jsx"></script>
 ```
 
-## Publicera på GitHub Pages
+`vite.config.js` är förinställd för repo-namnet `HerrstromXP`:
 
-1. Skapa ett nytt GitHub-repo.
-2. Ladda upp alla filer i projektet.
-3. Gå till **Settings → Pages**.
-4. Välj **Source: GitHub Actions**.
-5. Pusha till `main`.
+```js
+base: process.env.VITE_BASE_PATH || '/HerrstromXP/'
+```
 
-## Aktivera synkning med Firebase
+Byter du repo-namn måste du ändra base path.
 
-1. Gå till Firebase Console och skapa ett projekt.
-2. Skapa en webbapp i Firebase-projektet.
-3. Kopiera Firebase Config-värdena.
-4. Skapa en fil som heter `.env` i projektets rot.
-5. Kopiera innehållet från `.env.example` och fyll i dina värden.
-6. Skapa Firestore Database i Firebase.
-7. Lägg in reglerna från `firestore.rules` i Firebase → Firestore → Rules.
-8. Kör/pusha om sidan.
+## GitHub secrets
+
+Skapa 6 separata secrets i GitHub:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
 
 Exempel:
 
-```env
-VITE_FIREBASE_API_KEY=din_api_key
-VITE_FIREBASE_AUTH_DOMAIN=ditt-projekt.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=ditt-projekt-id
-VITE_FIREBASE_STORAGE_BUCKET=ditt-projekt.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
-VITE_FIREBASE_APP_ID=1:123456789:web:abcdef
-VITE_FAMILY_ID=herrstroms-superhemligt-namn
-```
+`VITE_FIREBASE_AUTH_DOMAIN` = `tygelvagenxp.firebaseapp.com`
 
-`VITE_FAMILY_ID` styr vilket dokument i Firestore som används. Välj något svårt att gissa om appen ligger publikt.
+Inte hela raden `authDomain: ...`, bara värdet.
 
-## Lägga till nya uppgifter
+## Firestore rules
 
-Öppna **Inställningar** i appen och ändra JSON.
+För enkel familjeapp/test ligger reglerna öppna i `firestore.rules`. Publicera dem i Firebase Console > Firestore > Rules.
 
-Exempel på uppgift:
+## Ändra barn, uppdrag och belöningar
 
-```js
-{
-  "id": "brush-teeth",
-  "title": "Borsta tänderna",
-  "points": 10,
-  "icon": "🪥",
-  "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-  "childIds": ["annie", "albin"],
-  "category": "Kväll"
-}
-```
+Öppna:
 
-## Lägga till mål som köps för XP
+`src/data/defaultFamily.js`
 
-Exempel: TV-spel 30 minuter för 100 XP, bara fredag–söndag.
+Där ändrar du:
 
-```js
-{
-  "id": "gaming30",
-  "title": "TV-spel 30 minuter",
-  "cost": 100,
-  "icon": "🎮",
-  "days": ["fri", "sat", "sun"],
-  "childIds": ["annie", "albin"],
-  "resetDaily": true
-}
-```
+- barnens namn
+- uppdrag
+- XP per uppdrag
+- belöningar
+- kostnad i XP
+- vilka veckodagar de gäller
+- om uppdrag kräver föräldragodkännande
 
 Veckodagar:
 
-- `mon` måndag
-- `tue` tisdag
-- `wed` onsdag
-- `thu` torsdag
-- `fri` fredag
-- `sat` lördag
-- `sun` söndag
+`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`
 
-## Viktigt om säkerhet
+## Föräldraläge
 
-Nuvarande Firestore-regler är enkla och öppna för att vara lätt att komma igång med. Det passar bäst för en privat/lågkänslig familjeapp med svårgissad URL och svårgissat `VITE_FAMILY_ID`.
+Standard-PIN är:
 
-Vill du ha riktig inloggning kan nästa version byggas med Firebase Authentication och låsta regler per familj.
+`2468`
 
-Test
+Ändras i `src/data/defaultFamily.js`.
+
+## Om GitHub webben inte laddar upp .github-mappen
+
+Skapa filen manuellt i GitHub med namnet:
+
+`.github/workflows/deploy.yml`
+
+Klistra in innehållet från projektets deploy.yml.
