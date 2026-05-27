@@ -1,5 +1,6 @@
 export const defaultFamily = {
   familyId: 'herrstromxp',
+  familyName: 'HerrstromXP',
   parentPin: '2468',
   children: [
     { id: 'annie', name: 'Annie', emoji: '🦄', color: '#f472b6' },

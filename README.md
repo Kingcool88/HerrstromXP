@@ -1,76 +1,89 @@
-# HerrstromXP V2
+# HerrstromXP V3
 
-Stabil React/Vite-version för GitHub Pages med XP, två barn, belöningar, daglig reset och valfri Firebase/Firestore-synkning.
+Stabil GitHub Pages-app för barnens uppdrag, XP och belöningar.
 
-## Viktigt
+## Nytt i V3
 
-`index.html` måste peka på:
+- Riktigt grafiskt adminläge istället för JSON-redigering.
+- Lägg till, ändra och ta bort uppdrag via formulär.
+- Lägg till, ändra och ta bort belöningar via formulär.
+- Lägg till och ändra barn, emoji, färg och XP-bank.
+- Godkänn eller neka uppgifter i föräldraläget.
+- Olika dagar per uppdrag och belöning.
+- XP-bank sparas, men dagens avklarade uppdrag och köpta belöningar nollställs vid ny dag.
+- Firebase/Firestore-synkning om secrets finns.
+- Lokalt fallback-läge om Firebase saknas.
+- Förberedelse för pushnotiser via Firebase Cloud Messaging.
 
-```html
-<script type="module" src="/src/main.jsx"></script>
+## PIN
+
+Standard PIN är:
+
+```txt
+2468
 ```
 
-`vite.config.js` är förinställd för repo-namnet `HerrstromXP`:
+Den kan ändras i adminläget under **Inställningar**.
+
+## GitHub Pages
+
+Repo-namn i detta projekt är satt till:
+
+```txt
+HerrstromXP
+```
+
+Därför finns detta i `vite.config.js`:
 
 ```js
-base: process.env.VITE_BASE_PATH || '/HerrstromXP/'
+base: '/HerrstromXP/'
 ```
 
-Byter du repo-namn måste du ändra base path.
+Om ditt repo heter något annat måste du ändra `base`.
 
-## GitHub secrets
+## GitHub Secrets
 
-Skapa 6 separata secrets i GitHub:
+Lägg in dessa under:
 
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
+**Settings → Secrets and variables → Actions → New repository secret**
 
-Exempel:
+```txt
+VITE_FIREBASE_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_STORAGE_BUCKET
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_APP_ID
+```
 
-`VITE_FIREBASE_AUTH_DOMAIN` = `tygelvagenxp.firebaseapp.com`
+För pushnotiser behövs också:
 
-Inte hela raden `authDomain: ...`, bara värdet.
+```txt
+VITE_FIREBASE_VAPID_KEY
+```
+
+Den finns i Firebase:
+
+**Project settings → Cloud Messaging → Web Push certificates → Key pair**
+
+## Pushnotiser
+
+Appen kan registrera föräldraenheten för push och spara token i Firestore.
+
+För att faktiskt skicka push automatiskt när ett barn klickar “klar” på ett uppdrag behövs en liten serverdel. En färdig mall finns i:
+
+```txt
+firebase-functions/index.js
+```
+
+Körs med Firebase CLI senare:
+
+```bash
+cd firebase-functions
+npm install
+firebase deploy --only functions
+```
 
 ## Firestore rules
 
-För enkel familjeapp/test ligger reglerna öppna i `firestore.rules`. Publicera dem i Firebase Console > Firestore > Rules.
-
-## Ändra barn, uppdrag och belöningar
-
-Öppna:
-
-`src/data/defaultFamily.js`
-
-Där ändrar du:
-
-- barnens namn
-- uppdrag
-- XP per uppdrag
-- belöningar
-- kostnad i XP
-- vilka veckodagar de gäller
-- om uppdrag kräver föräldragodkännande
-
-Veckodagar:
-
-`mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun`
-
-## Föräldraläge
-
-Standard-PIN är:
-
-`2468`
-
-Ändras i `src/data/defaultFamily.js`.
-
-## Om GitHub webben inte laddar upp .github-mappen
-
-Skapa filen manuellt i GitHub med namnet:
-
-`.github/workflows/deploy.yml`
-
-Klistra in innehållet från projektets deploy.yml.
+För enkel start finns öppna regler i `firestore.rules`. De är enkla för test hemma, men bör låsas med Firebase Auth om appen ska användas publikt.

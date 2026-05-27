@@ -1,0 +1,9 @@
+{
+  "name": "herrstromxp-functions",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "latest",
+    "firebase-functions": "latest"
+  }
+}
