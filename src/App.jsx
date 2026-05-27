@@ -24,6 +24,8 @@ export default function App() {
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [showSync, setShowSync] = useState(false)
+  const [popup, setPopup] = useState(null)
+  const [confetti, setConfetti] = useState([])
 
   useEffect(() => {
     let cleanup = () => {}
@@ -39,6 +41,28 @@ export default function App() {
     setData(next)
     try { await store?.save(next) }
     finally { setSaving(false) }
+  }
+
+  const playSound = (type='coin') => {
+    if (data?.family?.soundEnabled === false) return
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const o = ctx.createOscillator(); const g = ctx.createGain()
+      o.connect(g); g.connect(ctx.destination)
+      o.frequency.value = type === 'level' ? 660 : type === 'reward' ? 523 : 880
+      g.gain.setValueAtTime(0.0001, ctx.currentTime)
+      g.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.02)
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22)
+      o.start(); o.stop(ctx.currentTime + 0.24)
+    } catch {}
+  }
+
+  const celebrate = (title, emoji='⭐', type='coin') => {
+    playSound(type)
+    setPopup({ title, emoji, id: uid() })
+    if (data?.family?.confettiEnabled !== false) setConfetti(Array.from({length: 36}, (_,i)=>({ id: `${Date.now()}-${i}`, left: Math.random()*100, delay: Math.random()*0.25, spin: Math.random()*360 })))
+    window.setTimeout(()=>setPopup(null), 1900)
+    window.setTimeout(()=>setConfetti([]), 1700)
   }
 
   const child = data?.family.children.find(c => c.id === selectedChild)
@@ -60,7 +84,19 @@ export default function App() {
   const xpForTask = (task) => Math.round(Number(task.xp || 0) * (rules.weekendBonus && isWeekend() ? 1 + Number(rules.weekendBonusPercent || 0) / 100 : 1))
   const requiredDone = todaysTasks.filter(t => t.requiredBeforeRewards).every(t => taskState(t.id) === 'done')
   const completedCount = todaysTasks.filter(t => taskState(t.id) === 'done').length
-  const rewardsBlocked = (rules.blockRewardsUntilRequiredDone && !requiredDone) || completedCount < Number(rules.minimumTasksBeforeRewards || 0)
+  const specificRequiredTasks = todaysTasks.filter(t => (rules.requiredRewardTaskIds || []).includes(t.id))
+  const specificRequiredDone = !rules.requireSpecificTasksBeforeRewards || specificRequiredTasks.every(t => taskState(t.id) === 'done')
+  const screenMinutesUsed = Object.values(data.progress.purchased || {}).filter(p => p.childId === selectedChild).reduce((sum, p) => {
+    const r = data.family.rewards.find(x => x.id === p.rewardId)
+    return sum + (r?.kind === 'screen' ? Number(r.minutes || 0) : 0)
+  }, 0)
+  const screenLimitReached = rules.maxScreenTimeEnabled && screenMinutesUsed >= Number(rules.maxScreenMinutesPerDay || 0)
+  const rewardsBlocked = (rules.blockRewardsUntilRequiredDone && !requiredDone) || completedCount < Number(rules.minimumTasksBeforeRewards || 0) || !specificRequiredDone
+  const smartBlocks = [
+    rewardsBlocked && 'Belöningar låsta tills obligatoriska uppdrag är klara',
+    !specificRequiredDone && `Kräver: ${specificRequiredTasks.filter(t=>taskState(t.id)!=='done').map(t=>t.title).join(', ')}`,
+    screenLimitReached && `Max skärmtid nådd: ${screenMinutesUsed}/${rules.maxScreenMinutesPerDay} min`
+  ].filter(Boolean)
 
   const awardAchievements = (next, childId) => {
     const s = makeStats(next, childId)
@@ -113,6 +149,7 @@ export default function App() {
       maybeFullDayBonus(next, selectedChild)
       awardAchievements(next, selectedChild)
       setMessage(`+${points} XP! ⭐`)
+      celebrate(`+${points} XP`, '⭐', 'coin')
     }
     await save(next)
   }
@@ -130,6 +167,7 @@ export default function App() {
     maybeFullDayBonus(next, p.childId)
     awardAchievements(next, p.childId)
     setMessage('Godkänt och XP utdelat ⭐')
+    celebrate('Godkänt!', '✅', 'coin')
     await save(next)
   }
 
@@ -146,7 +184,8 @@ export default function App() {
   const buyReward = async (reward) => {
     const key = `${selectedChild}:${reward.id}`
     if (data.progress.purchased[key]) return
-    if (rewardsBlocked) { setMessage('Belöningar är låsta tills dagens regler är uppfyllda 🔒'); return }
+    if (rewardsBlocked) { setMessage(smartBlocks[0] || 'Belöningar är låsta tills dagens regler är uppfyllda 🔒'); return }
+    if (reward.kind === 'screen' && rules.maxScreenTimeEnabled && screenMinutesUsed + Number(reward.minutes || 0) > Number(rules.maxScreenMinutesPerDay || 0)) { setMessage(`Max skärmtid per dag är ${rules.maxScreenMinutesPerDay} min. Redan köpt: ${screenMinutesUsed} min.`); return }
     if (xp < Number(reward.cost || 0)) { setMessage('Inte tillräckligt med XP ännu 🙂'); return }
     const next = clone(data)
     next.progress.xpBank[selectedChild] = xp - Number(reward.cost || 0)
@@ -154,6 +193,7 @@ export default function App() {
     next.progress.history.unshift({ id: uid(), date: todayKey(), childId: selectedChild, type: 'reward', title: reward.title, cost: reward.cost })
     awardAchievements(next, selectedChild)
     setMessage(`${reward.title} köpt! 🎁`)
+    celebrate('Belöning köpt!', reward.emoji || '🎁', 'reward')
     store?.notifyEvent?.({ type: 'reward_bought', title: 'Belöning köpt', body: `${child?.name} köpte: ${reward.title} för ${reward.cost} XP`, childId: selectedChild, rewardId: reward.id })
     await save(next)
   }
@@ -178,7 +218,7 @@ export default function App() {
         <div>
           <div className="eyebrow">{data.family.familyName} · {new Date().toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
           <h1>Barnens uppdrag</h1>
-          <p>Samla XP, lås upp achievements och köp belöningar. XP sparas mellan dagar.</p>
+          <p>Nintendo-inspirerade uppdrag: samla XP, lås upp achievements och köp belöningar. XP sparas mellan dagar.</p>
         </div>
         <div className="topBadges">
           {saving && <span className="syncBadge"><Clock size={18}/> Sparar</span>}
@@ -188,10 +228,12 @@ export default function App() {
 
       {showSync && <div className="infoBox"><b>Synkstatus:</b> {store?.diagnostics} {store?.mode === 'local' && <span> Lägg in Firebase-secrets och kör ny GitHub Actions-build för att få synk.</span>}</div>}
       {message && <div className="toast" onClick={() => setMessage('')}>{message}</div>}
+      {popup && <div className="achievementPopup"><span>{popup.emoji}</span><b>{popup.title}</b></div>}
+      {confetti.map(c => <i key={c.id} className="confettiPiece" style={{ left: `${c.left}%`, animationDelay: `${c.delay}s`, '--spin': `${c.spin}deg` }} />)}
 
       <section className="children">
         {data.family.children.map(c => <button key={c.id} className={`childCard ${selectedChild===c.id?'active':''}`} onClick={() => setSelectedChild(c.id)} style={{'--accent': c.color}}>
-          <span className="avatar">{c.emoji}</span><span><b>{c.name}</b><small>{data.progress.xpBank[c.id] || 0} XP · nivå {level(data.progress.xpBank[c.id] || 0)}</small></span>
+          <span className="avatar">{c.emoji}</span><span><b>{c.name}</b><small>{data.progress.xpBank[c.id] || 0} XP · nivå {level(data.progress.xpBank[c.id] || 0)}</small><span className="miniXp"><em style={{width: `${Math.min(100, ((data.progress.xpBank[c.id]||0)%100))}%`}} /></span></span>
         </button>)}
       </section>
 
@@ -205,7 +247,7 @@ export default function App() {
 
           <div className="childHeader" style={{'--accent': child?.color}}>
             <div className="bigAvatar">{child?.emoji}</div>
-            <div><h2>{child?.name}</h2><p><Star size={16}/> {xp} XP · nivå {level(xp)} · <Flame size={16}/> {stats?.streak || 0} streak</p></div>
+            <div className="heroStats"><h2>{child?.name}</h2><p><Star size={16}/> {xp} XP · nivå {level(xp)} · <Flame size={16}/> {stats?.streak || 0} streak</p><div className="xpBar"><span style={{width: `${Math.min(100, xp % 100)}%`}} /></div></div>
           </div>
 
           {tab === 'tasks' && <div className="cards">
@@ -221,7 +263,7 @@ export default function App() {
           </div>}
 
           {tab === 'rewards' && <div className="cards">
-            {rewardsBlocked && <div className="lockBox"><Lock size={18}/> Belöningar är låsta tills dagens valbara regler är uppfyllda.</div>}
+            {smartBlocks.map((b,i)=><div key={i} className="lockBox"><Lock size={18}/> {b}</div>)}
             {todaysRewards.length === 0 && <Empty text="Inga belöningar för idag." />}
             {todaysRewards.map(reward => {
               const key = `${selectedChild}:${reward.id}`
@@ -229,7 +271,7 @@ export default function App() {
               const locked = xp < Number(reward.cost || 0) || rewardsBlocked
               return <button key={reward.id} className={`reward ${bought?'bought':''} ${locked&&!bought?'locked':''}`} onClick={() => buyReward(reward)}>
                 <span className="rewardEmoji">{reward.emoji}</span>
-                <div><h3>{reward.title}</h3><p>{reward.days.map(d=>dayNames[d]).join(', ')} {reward.requiresParentConfirm && ' · säg till vuxen'}</p></div>
+                <div><h3>{reward.title}</h3><p>{reward.days.map(d=>dayNames[d]).join(', ')} {reward.kind==='screen' && ` · ${reward.minutes || 0} min skärm`} {reward.requiresParentConfirm && ' · säg till vuxen'}</p></div>
                 <strong>{bought?'Köpt idag':locked?<><Lock size={15}/> {reward.cost} XP</>:`Köp ${reward.cost} XP`}</strong>
               </button>
             })}
@@ -243,6 +285,7 @@ export default function App() {
           <Stat label="Uppdrag idag" value={`${completedCount}/${todaysTasks.length}`} />
           <Stat label="Väntar godkännande" value={pendingItems.length} />
           <Stat label="Belöningar köpta idag" value={Object.keys(data.progress.purchased || {}).filter(k=>k.startsWith(`${selectedChild}:`)).length} />
+          <Stat label="Skärmtid köpt idag" value={`${screenMinutesUsed}/${rules.maxScreenMinutesPerDay || 0} min`} />
           <Stat label="Senaste reset" value={data.progress.lastResetFrom ? `${data.progress.lastResetFrom} → ${data.progress.date}` : data.progress.date} />
 
           <div className="adminBox">
@@ -282,7 +325,7 @@ function ApproveTab({ data, pendingItems, approveTask, rejectTask }) { return <d
 
 function TasksAdmin({ data, children, draftTask, setDraftTask, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till uppdrag" icon={<Plus/>}><Text label="Titel" value={draftTask.title} onChange={v=>setDraftTask({...draftTask,title:v})}/><Text label="Kategori" value={draftTask.category} onChange={v=>setDraftTask({...draftTask,category:v})}/><NumberField label="XP" value={draftTask.xp} onChange={v=>setDraftTask({...draftTask,xp:v})}/><Toggle label="Kräver godkännande" checked={draftTask.requiresApproval} onChange={v=>setDraftTask({...draftTask,requiresApproval:v})}/><Toggle label="Krävs innan belöningar" checked={draftTask.requiredBeforeRewards} onChange={v=>setDraftTask({...draftTask,requiredBeforeRewards:v})}/><DayPicker value={draftTask.days} onChange={days=>setDraftTask({...draftTask,days})}/><ChildPicker children={children} value={draftTask.childIds} onChange={childIds=>setDraftTask({...draftTask,childIds})}/><button onClick={()=>{ if(!draftTask.title.trim()) return; updateFamily(f=>{ f.tasks.push({...draftTask, title: draftTask.title.trim(), xp:Number(draftTask.xp)||0})}, 'Uppdrag tillagt ✅'); setDraftTask(blankTask(children.map(c=>c.id))) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Befintliga uppdrag">{data.family.tasks.map(task => <TaskRow key={task.id} task={task} children={children} onSave={(updated)=>updateFamily(f=>{ const i=f.tasks.findIndex(x=>x.id===task.id); f.tasks[i]=updated }, 'Uppdrag uppdaterat ✅')} onDelete={()=>updateFamily(f=>{f.tasks=f.tasks.filter(x=>x.id!==task.id)}, 'Uppdrag raderat')}/>)}</ListCard></div> }
 
-function RewardsAdmin({ data, children, draftReward, setDraftReward, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till belöning" icon={<Gift/>}><Text label="Titel" value={draftReward.title} onChange={v=>setDraftReward({...draftReward,title:v})}/><Text label="Emoji" value={draftReward.emoji} onChange={v=>setDraftReward({...draftReward,emoji:v})}/><NumberField label="Kostar XP" value={draftReward.cost} onChange={v=>setDraftReward({...draftReward,cost:v})}/><Toggle label="Föräldern behöver bekräfta efter köp" checked={draftReward.requiresParentConfirm} onChange={v=>setDraftReward({...draftReward,requiresParentConfirm:v})}/><DayPicker value={draftReward.days} onChange={days=>setDraftReward({...draftReward,days})}/><ChildPicker children={children} value={draftReward.childIds} onChange={childIds=>setDraftReward({...draftReward,childIds})}/><button onClick={()=>{ if(!draftReward.title.trim()) return; updateFamily(f=>{ f.rewards.push({...draftReward, title: draftReward.title.trim(), cost:Number(draftReward.cost)||0})}, 'Belöning tillagd ✅'); setDraftReward(blankReward(children.map(c=>c.id))) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Befintliga belöningar">{data.family.rewards.map(reward => <RewardRow key={reward.id} reward={reward} children={children} onSave={(updated)=>updateFamily(f=>{ const i=f.rewards.findIndex(x=>x.id===reward.id); f.rewards[i]=updated }, 'Belöning uppdaterad ✅')} onDelete={()=>updateFamily(f=>{f.rewards=f.rewards.filter(x=>x.id!==reward.id)}, 'Belöning raderad')}/>)}</ListCard></div> }
+function RewardsAdmin({ data, children, draftReward, setDraftReward, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till belöning" icon={<Gift/>}><Text label="Titel" value={draftReward.title} onChange={v=>setDraftReward({...draftReward,title:v})}/><Text label="Emoji" value={draftReward.emoji} onChange={v=>setDraftReward({...draftReward,emoji:v})}/><NumberField label="Kostar XP" value={draftReward.cost} onChange={v=>setDraftReward({...draftReward,cost:v})}/><Text label="Typ, skriv screen för skärmtid" value={draftReward.kind || ''} onChange={v=>setDraftReward({...draftReward,kind:v})}/><NumberField label="Minuter, om skärmtid" value={draftReward.minutes || 0} onChange={v=>setDraftReward({...draftReward,minutes:v})}/><Toggle label="Föräldern behöver bekräfta efter köp" checked={draftReward.requiresParentConfirm} onChange={v=>setDraftReward({...draftReward,requiresParentConfirm:v})}/><DayPicker value={draftReward.days} onChange={days=>setDraftReward({...draftReward,days})}/><ChildPicker children={children} value={draftReward.childIds} onChange={childIds=>setDraftReward({...draftReward,childIds})}/><button onClick={()=>{ if(!draftReward.title.trim()) return; updateFamily(f=>{ f.rewards.push({...draftReward, title: draftReward.title.trim(), cost:Number(draftReward.cost)||0})}, 'Belöning tillagd ✅'); setDraftReward(blankReward(children.map(c=>c.id))) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Befintliga belöningar">{data.family.rewards.map(reward => <RewardRow key={reward.id} reward={reward} children={children} onSave={(updated)=>updateFamily(f=>{ const i=f.rewards.findIndex(x=>x.id===reward.id); f.rewards[i]=updated }, 'Belöning uppdaterad ✅')} onDelete={()=>updateFamily(f=>{f.rewards=f.rewards.filter(x=>x.id!==reward.id)}, 'Belöning raderad')}/>)}</ListCard></div> }
 
 function ChildrenAdmin({ data, draftChild, setDraftChild, updateFamily }) { return <div className="adminGrid"><EditorCard title="Lägg till barn" icon={<UserRoundPlus/>}><Text label="Namn" value={draftChild.name} onChange={v=>setDraftChild({...draftChild,name:v})}/><Text label="Emoji/avatar" value={draftChild.emoji} onChange={v=>setDraftChild({...draftChild,emoji:v})}/><Text label="Nivå-emoji" value={draftChild.levelEmoji} onChange={v=>setDraftChild({...draftChild,levelEmoji:v})}/><Text label="Färg" value={draftChild.color} onChange={v=>setDraftChild({...draftChild,color:v})}/><button onClick={()=>{ if(!draftChild.name.trim()) return; updateFamily((f,p)=>{ f.children.push({...draftChild, name:draftChild.name.trim()}); p.xpBank[draftChild.id]=0 }, 'Barn tillagt ✅'); setDraftChild(blankChild()) }}><Save size={17}/> Lägg till</button></EditorCard><ListCard title="Barn och XP-bank">{data.family.children.map(c => <ChildRow key={c.id} child={c} xp={data.progress.xpBank[c.id]||0} onSave={(updated, xp)=>updateFamily((f,p)=>{ const i=f.children.findIndex(x=>x.id===c.id); f.children[i]=updated; p.xpBank[c.id]=Number(xp)||0 }, 'Barn uppdaterat ✅')} onDelete={()=>updateFamily((f,p)=>{ f.children=f.children.filter(x=>x.id!==c.id); delete p.xpBank[c.id] }, 'Barn raderat')}/>)}</ListCard></div> }
 
@@ -294,6 +337,8 @@ function RulesAdmin({ data, updateFamily }) {
     <Toggle label="Kräv föräldragodkännande för uppdrag som är markerade så" checked={r.requireParentApproval} onChange={v=>set('requireParentApproval',v)}/>
     <Toggle label="Lås belöningar tills obligatoriska uppdrag är klara" checked={r.blockRewardsUntilRequiredDone} onChange={v=>set('blockRewardsUntilRequiredDone',v)}/>
     <NumberField label="Minsta antal uppdrag före belöningar" value={r.minimumTasksBeforeRewards} onChange={v=>set('minimumTasksBeforeRewards',v)}/>
+    <Toggle label="Kräv tandborstning/läxor före belöningar" checked={r.requireSpecificTasksBeforeRewards} onChange={v=>set('requireSpecificTasksBeforeRewards',v)}/>
+    <Text label="Uppdrags-ID som krävs före belöningar, separera med komma" value={(r.requiredRewardTaskIds || []).join(', ')} onChange={v=>set('requiredRewardTaskIds', v.split(',').map(x=>x.trim()).filter(Boolean))}/>
     <Toggle label="Bonus när alla dagens uppdrag är klara" checked={r.bonusAllDailyTasks} onChange={v=>set('bonusAllDailyTasks',v)}/>
     <NumberField label="Bonus-XP för alla uppdrag" value={r.allDailyTasksBonusXp} onChange={v=>set('allDailyTasksBonusXp',v)}/>
     <Toggle label="Streaks aktiverade" checked={r.streaksEnabled} onChange={v=>set('streaksEnabled',v)}/>
@@ -301,22 +346,45 @@ function RulesAdmin({ data, updateFamily }) {
     <NumberField label="Streakbonus XP" value={r.streakBonusXp} onChange={v=>set('streakBonusXp',v)}/>
     <Toggle label="Helgbonus aktiverad" checked={r.weekendBonus} onChange={v=>set('weekendBonus',v)}/>
     <NumberField label="Helgbonus procent" value={r.weekendBonusPercent} onChange={v=>set('weekendBonusPercent',v)}/>
+    <Toggle label="Max skärmtid per dag aktiverad" checked={r.maxScreenTimeEnabled} onChange={v=>set('maxScreenTimeEnabled',v)}/>
+    <NumberField label="Max skärmtid per dag, minuter" value={r.maxScreenMinutesPerDay} onChange={v=>set('maxScreenMinutesPerDay',v)}/>
     <Toggle label="Tillåt minus-XP" checked={r.allowNegativeXp} onChange={v=>set('allowNegativeXp',v)}/>
     <button onClick={()=>updateFamily(f=>{f.rules=r}, 'Smarta regler sparade ✅')}><Save size={17}/> Spara regler</button>
   </EditorCard><EditorCard title="Vad betyder midnatt-reset?" icon={<Clock/>}><p className="muted">Nuvarande reset sker när appen öppnas efter datumbyte: dagens klara uppdrag och köpta belöningar rensas, men XP-bank, achievements, historik och streaks sparas. Serverstyrd reset betyder att Firebase Cloud Function kör reset även om ingen öppnar appen vid midnatt.</p></EditorCard></div>
 }
 
-function SettingsPanel({ data, updateFamily, store }) { const [familyName, setFamilyName] = useState(data.family.familyName || 'HerrstromXP'); const [pin, setPin] = useState(data.family.parentPin || ''); return <div className="adminGrid"><EditorCard title="Familjeinställningar" icon={<Settings/>}><Text label="Namn på app/familj" value={familyName} onChange={setFamilyName}/><Text label="Föräldra-PIN" value={pin} onChange={setPin}/><button onClick={()=>updateFamily(f=>{f.familyName=familyName; f.parentPin=pin}, 'Inställningar sparade ✅')}><Save size={17}/> Spara</button></EditorCard><EditorCard title="Synkning och push" icon={<Bell/>}><p className="muted">Synkstatus: <b>{store?.statusText}</b>. {store?.diagnostics}</p><Stat label="Läge" value={store?.mode === 'firebase' ? 'Firebase aktivt' : 'Lokalt läge'} /><Stat label="Familj ID" value={data.family.familyId} /></EditorCard></div> }
+function SettingsPanel({ data, updateFamily, store }) { const [familyName, setFamilyName] = useState(data.family.familyName || 'HerrstromXP'); const [pin, setPin] = useState(data.family.parentPin || ''); const [theme, setTheme] = useState(data.family.theme || 'dark'); const [sound, setSound] = useState(data.family.soundEnabled !== false); const [confetti, setConfetti] = useState(data.family.confettiEnabled !== false); return <div className="adminGrid"><EditorCard title="Familjeinställningar" icon={<Settings/>}><Text label="Namn på app/familj" value={familyName} onChange={setFamilyName}/><Text label="Föräldra-PIN" value={pin} onChange={setPin}/><Text label="Tema, dark eller light" value={theme} onChange={setTheme}/><Toggle label="Ljud på" checked={sound} onChange={setSound}/><Toggle label="Konfetti på" checked={confetti} onChange={setConfetti}/><button onClick={()=>updateFamily(f=>{f.familyName=familyName; f.parentPin=pin; f.theme=theme; f.soundEnabled=sound; f.confettiEnabled=confetti}, 'Inställningar sparade ✅')}><Save size={17}/> Spara</button></EditorCard><EditorCard title="Synkning och push" icon={<Bell/>}><p className="muted">Synkstatus: <b>{store?.statusText}</b>. {store?.diagnostics}</p><Stat label="Läge" value={store?.mode === 'firebase' ? 'Firebase aktivt' : 'Lokalt läge'} /><Stat label="Familj ID" value={data.family.familyId} /></EditorCard></div> }
 
 function StatsPanel({ data, selectedChild, admin=false }) {
   const children = admin ? data.family.children : data.family.children.filter(c=>c.id===selectedChild)
-  return <div className="statsGrid">{children.map(c => { const s = makeStats(data, c.id); return <div className="statCard" key={c.id} style={{'--accent': c.color}}><div className="statHero"><span>{c.emoji}</span><div><h3>{c.name}</h3><p>Nivå {level(data.progress.xpBank[c.id] || 0)}</p></div></div><Stat label="XP-bank" value={data.progress.xpBank[c.id] || 0}/><Stat label="Uppdrag totalt" value={s.tasksTotal}/><Stat label="Belöningar köpta" value={s.rewardsTotal}/><Stat label="Achievements" value={s.achievements}/><Stat label="Streak" value={`${s.streak} dagar`}/><div className="miniHistory">{data.progress.history.filter(h=>h.childId===c.id).slice(0,6).map(h=><div key={h.id}><span>{h.type}</span><b>{h.title}</b><em>{h.xp ? `+${h.xp} XP` : h.cost ? `-${h.cost} XP` : ''}</em></div>)}</div></div> })}</div>
+  const leaderboard = [...data.family.children].sort((a,b)=>(data.progress.xpBank[b.id]||0)-(data.progress.xpBank[a.id]||0))
+  const weekDays = lastDays(7)
+  const best = data.family.children.reduce((top,c)=> Math.max(top, data.progress.streaks?.[c.id]?.count || 0), 0)
+  const topWeek = leaderboard[0]
+  return <div className="dashboard">
+    <div className="dashHero"><h2>Dashboard</h2><p>Veckostatistik, topplista, streaks och heatmap.</p></div>
+    <div className="dashCards">
+      <div className="gameCard"><span>🏆</span><b>{topWeek?.name || '-'}</b><small>Mest XP totalt just nu</small></div>
+      <div className="gameCard"><span>🔥</span><b>{best} dagar</b><small>Bästa streak</small></div>
+      <div className="gameCard"><span>🎮</span><b>{screenMinutesToday(data)} min</b><small>Köpt skärmtid idag</small></div>
+    </div>
+    <div className="leaderboard"><h3>Topplista</h3>{leaderboard.map((c,i)=><div className="leaderRow" key={c.id}><strong>#{i+1}</strong><span>{c.emoji} {c.name}</span><em>{data.progress.xpBank[c.id]||0} XP</em></div>)}</div>
+    <div className="statsGrid">{children.map(c => { const s = makeStats(data, c.id); return <div className="statCard" key={c.id} style={{'--accent': c.color}}><div className="statHero"><span>{c.emoji}</span><div><h3>{c.name}</h3><p>Nivå {level(data.progress.xpBank[c.id] || 0)}</p></div></div><Stat label="XP-bank" value={data.progress.xpBank[c.id] || 0}/><Stat label="Uppdrag totalt" value={s.tasksTotal}/><Stat label="Uppdrag senaste 7 dagar" value={s.tasksWeek}/><Stat label="Belöningar köpta" value={s.rewardsTotal}/><Stat label="Achievements" value={s.achievements}/><Stat label="Streak" value={`${s.streak} dagar`}/><h4>Chores heatmap</h4><div className="heatmap">{weekDays.map(d=>{ const count=s.byDate[d]||0; return <span key={d} className={`heat h${Math.min(4,count)}`} title={`${d}: ${count} uppdrag`}><small>{d.slice(5)}</small></span> })}</div><div className="miniHistory">{data.progress.history.filter(h=>h.childId===c.id).slice(0,6).map(h=><div key={h.id}><span>{h.type}</span><b>{h.title}</b><em>{h.xp ? `+${h.xp} XP` : h.cost ? `-${h.cost} XP` : ''}</em></div>)}</div></div> })}</div>
+  </div>
 }
 
+function makeStats(data, childId) {
+  const history = data.progress.history || []
+  const days = lastDays(7)
+  const byDate = Object.fromEntries(days.map(d=>[d,0]))
+  for (const h of history) if (h.childId===childId && ['task','approved'].includes(h.type) && byDate[h.date] !== undefined) byDate[h.date]++
+  return { tasksTotal: history.filter(h=>h.childId===childId && ['task','approved'].includes(h.type)).length, tasksWeek: Object.values(byDate).reduce((a,b)=>a+b,0), rewardsTotal: history.filter(h=>h.childId===childId && h.type==='reward').length, achievements: Object.keys(data.progress.achievements || {}).filter(k=>k.startsWith(`${childId}:`)).length, streak: data.progress.streaks?.[childId]?.count || 0, byDate }
+}
+function lastDays(n){ return Array.from({length:n},(_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(n-1-i)); return d.toLocaleDateString('sv-SE') }) }
+function screenMinutesToday(data){ return Object.values(data.progress.purchased || {}).reduce((sum,p)=>{ const r=data.family.rewards.find(x=>x.id===p.rewardId); return sum + (r?.kind==='screen' ? Number(r.minutes||0) : 0) },0) }
 function TaskRow({ task, children, onSave, onDelete }) { const [open, setOpen] = useState(false); const [d, setD] = useState(task); useEffect(()=>setD(task), [task.id]); return <div className="editRow"><div className="rowTop"><b>{task.title}</b><span>{task.xp} XP · {task.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>{open && <div className="rowEdit"><Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/><Text label="Kategori" value={d.category} onChange={v=>setD({...d,category:v})}/><NumberField label="XP" value={d.xp} onChange={v=>setD({...d,xp:v})}/><Toggle label="Kräver godkännande" checked={d.requiresApproval} onChange={v=>setD({...d,requiresApproval:v})}/><Toggle label="Krävs innan belöningar" checked={d.requiredBeforeRewards} onChange={v=>setD({...d,requiredBeforeRewards:v})}/><DayPicker value={d.days} onChange={days=>setD({...d,days})}/><ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/><div className="actions"><button onClick={()=>{onSave({...d, xp:Number(d.xp)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div>}</div> }
-function RewardRow({ reward, children, onSave, onDelete }) { const [open, setOpen] = useState(false); const [d, setD] = useState(reward); useEffect(()=>setD(reward), [reward.id]); return <div className="editRow"><div className="rowTop"><b>{reward.emoji} {reward.title}</b><span>{reward.cost} XP · {reward.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>{open && <div className="rowEdit"><Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/><Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/><NumberField label="Kostar XP" value={d.cost} onChange={v=>setD({...d,cost:v})}/><Toggle label="Förälder bekräftar köp" checked={d.requiresParentConfirm} onChange={v=>setD({...d,requiresParentConfirm:v})}/><DayPicker value={d.days} onChange={days=>setD({...d,days})}/><ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/><div className="actions"><button onClick={()=>{onSave({...d, cost:Number(d.cost)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div>}</div> }
+function RewardRow({ reward, children, onSave, onDelete }) { const [open, setOpen] = useState(false); const [d, setD] = useState(reward); useEffect(()=>setD(reward), [reward.id]); return <div className="editRow"><div className="rowTop"><b>{reward.emoji} {reward.title}</b><span>{reward.cost} XP · {reward.days.map(x=>dayNames[x]).join(', ')}</span><button className="mini" onClick={()=>setOpen(!open)}>{open?'Stäng':'Ändra'}</button></div>{open && <div className="rowEdit"><Text label="Titel" value={d.title} onChange={v=>setD({...d,title:v})}/><Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/><NumberField label="Kostar XP" value={d.cost} onChange={v=>setD({...d,cost:v})}/><Text label="Typ, screen = skärmtid" value={d.kind || ''} onChange={v=>setD({...d,kind:v})}/><NumberField label="Minuter" value={d.minutes || 0} onChange={v=>setD({...d,minutes:v})}/><Toggle label="Förälder bekräftar köp" checked={d.requiresParentConfirm} onChange={v=>setD({...d,requiresParentConfirm:v})}/><DayPicker value={d.days} onChange={days=>setD({...d,days})}/><ChildPicker children={children} value={d.childIds} onChange={childIds=>setD({...d,childIds})}/><div className="actions"><button onClick={()=>{onSave({...d, cost:Number(d.cost)||0}); setOpen(false)}}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div>}</div> }
 function ChildRow({ child, xp, onSave, onDelete }) { const [d, setD] = useState(child); const [bank, setBank] = useState(xp); return <div className="editRow always"><div className="rowEdit compact"><Text label="Namn" value={d.name} onChange={v=>setD({...d,name:v})}/><Text label="Emoji" value={d.emoji} onChange={v=>setD({...d,emoji:v})}/><Text label="Nivå-emoji" value={d.levelEmoji} onChange={v=>setD({...d,levelEmoji:v})}/><Text label="Färg" value={d.color} onChange={v=>setD({...d,color:v})}/><NumberField label="XP-bank" value={bank} onChange={setBank}/><div className="actions"><button onClick={()=>onSave(d, bank)}><Save size={16}/> Spara</button><button className="danger" onClick={onDelete}><Trash2 size={16}/> Radera</button></div></div></div> }
-function makeStats(data, childId) { const history = data.progress.history || []; return { tasksTotal: history.filter(h=>h.childId===childId && ['task','approved'].includes(h.type)).length, rewardsTotal: history.filter(h=>h.childId===childId && h.type==='reward').length, achievements: Object.keys(data.progress.achievements || {}).filter(k=>k.startsWith(`${childId}:`)).length, streak: data.progress.streaks?.[childId]?.count || 0 } }
 function level(xp) { return Math.max(1, Math.floor(Number(xp || 0) / 100) + 1) }
 function EditorCard({ title, icon, children }) { return <div className="editorCard"><h3>{icon}{title}</h3>{children}</div> }
 function ListCard({ title, children }) { return <div className="listCard"><h3>{title}</h3>{children}</div> }

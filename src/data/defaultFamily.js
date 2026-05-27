@@ -1,6 +1,9 @@
 export const defaultFamily = {
   familyId: 'herrstromxp',
   familyName: 'HerrstromXP',
+  theme: 'dark',
+  soundEnabled: true,
+  confettiEnabled: true,
   parentPin: '2468',
   rules: {
     requireParentApproval: true,
@@ -13,7 +16,11 @@ export const defaultFamily = {
     streakBonusXp: 20,
     allowNegativeXp: false,
     weekendBonus: true,
-    weekendBonusPercent: 25
+    weekendBonusPercent: 25,
+    requireSpecificTasksBeforeRewards: true,
+    requiredRewardTaskIds: ['brush-teeth-morning', 'homework'],
+    maxScreenTimeEnabled: true,
+    maxScreenMinutesPerDay: 60
   },
   achievements: [
     { id: 'first-task', title: 'Första uppdraget', emoji: '🌟', rule: 'tasksCompleted', target: 1, bonusXp: 10 },
@@ -28,15 +35,16 @@ export const defaultFamily = {
   tasks: [
     { id: 'make-bed', title: 'Bädda sängen', xp: 10, days: ['mon','tue','wed','thu','fri','sat','sun'], childIds: ['annie','albin'], requiresApproval: false, requiredBeforeRewards: true, category: 'Morgon' },
     { id: 'brush-teeth-morning', title: 'Borsta tänderna morgon', xp: 10, days: ['mon','tue','wed','thu','fri','sat','sun'], childIds: ['annie','albin'], requiresApproval: false, requiredBeforeRewards: true, category: 'Morgon' },
+    { id: 'homework', title: 'Läxor/läsning 15 min', xp: 25, days: ['mon','tue','wed','thu'], childIds: ['annie','albin'], requiresApproval: true, requiredBeforeRewards: true, category: 'Skola' },
     { id: 'school-bag', title: 'Packa väska', xp: 15, days: ['mon','tue','wed','thu','fri'], childIds: ['annie','albin'], requiresApproval: true, requiredBeforeRewards: true, category: 'Skola/förskola' },
     { id: 'tidy-room', title: 'Plocka undan på rummet', xp: 20, days: ['mon','wed','fri','sun'], childIds: ['annie','albin'], requiresApproval: true, requiredBeforeRewards: false, category: 'Hem' },
     { id: 'dishwasher', title: 'Hjälpa till med diskmaskinen', xp: 20, days: ['tue','thu','sat'], childIds: ['annie','albin'], requiresApproval: true, requiredBeforeRewards: false, category: 'Hem' },
     { id: 'saturday-clean', title: 'Lördagsstädning 15 min', xp: 40, days: ['sat'], childIds: ['annie','albin'], requiresApproval: true, requiredBeforeRewards: false, category: 'Helg' }
   ],
   rewards: [
-    { id: 'gaming-30', title: 'TV-spel 30 min', cost: 100, emoji: '🎮', days: ['fri','sat','sun'], childIds: ['annie','albin'], requiresParentConfirm: true },
-    { id: 'tablet-20', title: 'Surfplatta 20 min', cost: 70, emoji: '📱', days: ['mon','tue','wed','thu','fri','sat','sun'], childIds: ['annie','albin'], requiresParentConfirm: false },
+    { id: 'gaming-30', title: 'TV-spel 30 min', cost: 100, emoji: '🎮', days: ['fri','sat','sun'], childIds: ['annie','albin'], requiresParentConfirm: true, kind: 'screen', minutes: 30 },
+    { id: 'tablet-20', title: 'Surfplatta 20 min', cost: 70, emoji: '📱', days: ['mon','tue','wed','thu','fri','sat','sun'], childIds: ['annie','albin'], requiresParentConfirm: false, kind: 'screen', minutes: 20 },
     { id: 'movie-choice', title: 'Välja film', cost: 120, emoji: '🍿', days: ['fri','sat'], childIds: ['annie','albin'], requiresParentConfirm: false },
-    { id: 'stay-up', title: 'Vara uppe 20 min längre', cost: 150, emoji: '🌙', days: ['fri','sat'], childIds: ['annie','albin'], requiresParentConfirm: true }
+    { id: 'stay-up', title: 'Vara uppe 20 min längre', cost: 150, emoji: '🌙', days: ['fri','sat'], childIds: ['annie','albin'], requiresParentConfirm: true, kind: 'privilege', minutes: 0 }
   ]
 }

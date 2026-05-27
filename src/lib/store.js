@@ -78,7 +78,7 @@ const normalize = (data) => {
   return merged
 }
 
-const localKey = 'herrstromxp-v4-data'
+const localKey = 'herrstromxp-v5-data'
 let firebaseApp = null
 let firebaseDb = null
 let firebaseRef = null
