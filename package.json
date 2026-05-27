@@ -1,9 +1,21 @@
 {
-  "name": "herrstromxp-functions",
+  "name": "herrstromxp",
   "private": true,
-  "main": "index.js",
+  "version": "5.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
   "dependencies": {
-    "firebase-admin": "latest",
-    "firebase-functions": "latest"
+    "firebase": "10.14.1",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.4",
+    "vite": "5.4.10"
   }
 }
