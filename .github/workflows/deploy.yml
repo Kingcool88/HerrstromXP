@@ -1,39 +1,29 @@
 name: Deploy to GitHub Pages
-
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 concurrency:
   group: pages
   cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Install dependencies
         run: |
           npm config set registry https://registry.npmjs.org/
           npm config set fetch-retries 5
-          npm config set fetch-retry-mintimeout 20000
-          npm config set fetch-retry-maxtimeout 120000
           npm config set fetch-timeout 300000
-          npm install --no-audit --no-fund --legacy-peer-deps --verbose
-
+          npm install --no-audit --no-fund --prefer-offline --legacy-peer-deps
       - run: npm run build
         env:
           VITE_BASE_PATH: /HerrstromXP/
@@ -44,19 +34,14 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_FIREBASE_VAPID_KEY: ${{ secrets.VITE_FIREBASE_VAPID_KEY }}
-
       - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./dist
-
+        with: { path: ./dist }
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     runs-on: ubuntu-latest
     needs: build
-
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
