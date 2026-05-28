@@ -35,7 +35,7 @@ function starterFamily(ownerUid, ownerName) {
     ownerUid,
     ownerName,
     theme: 'nintendo',
-    adminPin: '2468',
+    adminPin: '',
     friendCodes: [],
     onboardingDone: false,
     season: { name: 'Veckans liga', goal: 100, resetDay: 'Mån' },
@@ -102,7 +102,7 @@ function maybeAchievements(ch) {
 function Landing({ onLogin }){
   return <div className="landing">
     <div className="hero-card">
-      <div className="brand-row"><Gamepad2/><span>HerrstromXP</span></div>
+      <div className="brand-row"><Gamepad2/><span>FamilyQuest</span></div>
       <h1>Familjeuppdrag som barnen faktiskt vill göra.</h1>
       <p>Skapa barnprofiler, dela ut XP, bygg belöningar, sätt smarta regler och låt barnen tävla rättvist med kompisfamiljer via League Points.</p>
       <div className="hero-actions"><button className="primary" onClick={onLogin}>Registrera / logga in med Google</button><a href="#howto">Se hur det fungerar</a></div>
@@ -117,32 +117,94 @@ function Landing({ onLogin }){
 }
 
 function Onboarding({ user, onCreateCloud }){
+  const [step,setStep] = useState(1)
   const [name,setName] = useState('Familjen')
   const [theme,setTheme] = useState('nintendo')
+  const [pin,setPin] = useState('')
+  const [children,setChildren] = useState([
+    { id:'barn-1', name:'Annie', nickname:'Annie', emoji:'🦄' },
+    { id:'barn-2', name:'Albin', nickname:'Albin', emoji:'🦖' },
+  ])
   const [join,setJoin] = useState('')
-  return <div className="onboarding panel wide">
-    <h1>Välkommen {user?.displayName || 'förälder'}!</h1>
-    <p className="lead">Första gången skapar du en egen familj. Sen kan du lägga till barn, uppdrag, belöningar och bjuda in kompisfamiljer.</p>
-    <div className="onboard-grid">
-      <div className="form-card">
-        <h3>Skapa ny familj</h3>
-        <label>Familjenamn <input value={name} onChange={e=>setName(e.target.value)} /></label>
-        <label>Tema <select value={theme} onChange={e=>setTheme(e.target.value)}><option value="nintendo">Nintendo/spel</option><option value="clean">Stilrent</option></select></label>
-        <button className="primary" onClick={()=>onCreateCloud(name, theme)}>Skapa familj</button>
+  const canCreate = name.trim().length > 1 && pin.trim().length >= 4 && children.some(c=>c.name.trim())
+  const cleanChildren = children.filter(c=>c.name.trim()).map((c,i)=>({
+    id: c.id || `barn-${i+1}`,
+    name: c.name.trim(),
+    nickname: (c.nickname || c.name).trim(),
+    emoji: c.emoji || '⭐',
+    color: i % 2 ? '#37ff7a' : '#ff4fd8',
+    xp: 0,
+    level: 1,
+    streak: 0,
+    bestStreak: 0,
+    leaguePoints: 0,
+    achievements: []
+  }))
+  const updateChild = (idx, key, value) => setChildren(list => list.map((c,i)=>i===idx?{...c,[key]:value}:c))
+  const addChild = () => setChildren(list => [...list, { id:`barn-${uid()}`, name:'', nickname:'', emoji:'⭐' }])
+  const removeChild = idx => setChildren(list => list.filter((_,i)=>i!==idx))
+  return <div className="onboarding panel wide setup-wizard">
+    <div className="wizard-kicker">Första starten</div>
+    <h1>Välkommen till FamilyQuest, {user?.displayName || 'förälder'}!</h1>
+    <p className="lead">Här gör du en snabb grundinställning. Barnen hamnar sedan på barnens startsida. Adminläget är separat och kräver PIN varje gång.</p>
+
+    <div className="wizard-steps">
+      {[1,2,3,4].map(n=><button key={n} className={step===n?'active':''} onClick={()=>setStep(n)}>Steg {n}</button>)}
+    </div>
+
+    {step===1 && <div className="form-card wizard-card">
+      <h3>1. Familj och tema</h3>
+      <label>Familjenamn <input value={name} onChange={e=>setName(e.target.value)} placeholder="T.ex. Familjen Andersson" /></label>
+      <label>Tema <select value={theme} onChange={e=>setTheme(e.target.value)}><option value="nintendo">Nintendo/spel</option><option value="clean">Stilrent</option></select></label>
+      <p className="hint">Du kan byta tema senare i admin.</p>
+      <button className="primary" onClick={()=>setStep(2)}>Nästa</button>
+    </div>}
+
+    {step===2 && <div className="form-card wizard-card">
+      <h3>2. Skapa admin-PIN</h3>
+      <p className="hint">PIN-koden skyddar vuxenläget så barnen inte kan ändra uppdrag, XP eller belöningar.</p>
+      <label>Admin-PIN, minst 4 siffror <input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} inputMode="numeric" placeholder="T.ex. 2468" /></label>
+      <div className="wizard-nav"><button onClick={()=>setStep(1)}>Tillbaka</button><button className="primary" disabled={pin.length<4} onClick={()=>setStep(3)}>Nästa</button></div>
+    </div>}
+
+    {step===3 && <div className="form-card wizard-card">
+      <h3>3. Lägg till barn</h3>
+      <p className="hint">Barnen behöver inte egna Google-konton. De får profiler i familjen.</p>
+      <div className="admin-list">
+        {children.map((c,i)=><div className="edit-row" key={c.id || i}>
+          <input value={c.name} onChange={e=>updateChild(i,'name',e.target.value)} placeholder="Namn" />
+          <input value={c.nickname} onChange={e=>updateChild(i,'nickname',e.target.value)} placeholder="Smeknamn" />
+          <input className="tiny" value={c.emoji} onChange={e=>updateChild(i,'emoji',e.target.value)} placeholder="😀" />
+          <button className="danger" onClick={()=>removeChild(i)}>Ta bort</button>
+        </div>)}
       </div>
-      <div className="form-card muted">
-        <h3>Gå med via kod</h3>
-        <p>Förberett för familjekod. Just nu används kod för kompisliga; full join-koppling kan slås på när reglerna låses.</p>
-        <input value={join} onChange={e=>setJoin(e.target.value.toUpperCase())} placeholder="T.ex. HMV7K2" />
-        <button onClick={()=>alert('Kod sparas i nästa version när publikt familjeindex är aktiverat.')}>Gå med</button>
+      <button onClick={addChild}><Plus size={15}/> Lägg till barn</button>
+      <div className="wizard-nav"><button onClick={()=>setStep(2)}>Tillbaka</button><button className="primary" disabled={!cleanChildren.length} onClick={()=>setStep(4)}>Nästa</button></div>
+    </div>}
+
+    {step===4 && <div className="form-card wizard-card">
+      <h3>4. Starta FamilyQuest</h3>
+      <p className="hint">Vi skapar några startuppdrag och belöningar. Du kan ändra allt i admin senare.</p>
+      <div className="summary-box">
+        <p><b>Familj:</b> {name}</p>
+        <p><b>Tema:</b> {theme === 'nintendo' ? 'Nintendo/spel' : 'Stilrent'}</p>
+        <p><b>Barn:</b> {cleanChildren.map(c=>`${c.emoji} ${c.name}`).join(', ')}</p>
       </div>
+      <div className="wizard-nav"><button onClick={()=>setStep(3)}>Tillbaka</button><button className="primary" disabled={!canCreate} onClick={()=>onCreateCloud({ name, theme, pin, children: cleanChildren })}>Skapa familj</button></div>
+    </div>}
+
+    <div className="form-card muted join-card">
+      <h3>Har du en kod?</h3>
+      <p>Förberett för att gå med i en befintlig familj eller kompisliga via kod.</p>
+      <input value={join} onChange={e=>setJoin(e.target.value.toUpperCase())} placeholder="T.ex. FQ7K2A" />
+      <button onClick={()=>alert('Full kodinbjudan kommer i nästa kopplingssteg. Kompisliga kan redan hanteras i admin.')}>Använd kod</button>
     </div>
   </div>
 }
 
 function Top({ user, family, onLogin, onLogout, updateFamily }){
   return <header className="topbar">
-    <div><h1>HerrstromXP</h1><p>{family ? `${family.name || 'Familj'} · Kod ${family.code} · ${firebaseReady ? 'Synkad' : 'Lokalt'}` : 'Familje-quests med XP'}</p></div>
+    <div><h1>FamilyQuest</h1><p>{family ? `${family.name || 'Familj'} · Kod ${family.code} · ${firebaseReady ? 'Synkad' : 'Lokalt'}` : 'Familje-quests med XP'}</p></div>
     <div className="top-actions">
       {family && <select value={family.theme || 'nintendo'} onChange={e=>updateFamily(f=>({...f, theme:e.target.value}))}><option value="nintendo">🎮 Nintendo</option><option value="clean">Stilrent</option></select>}
       {user ? <button onClick={onLogout}><LogOut size={16}/> Logga ut</button> : <button onClick={onLogin}>Logga in</button>}
@@ -242,6 +304,30 @@ function ChildPanel({ family, child, updateFamily }){
   </section>
 }
 
+function AdminGate({ family, updateFamily }){
+  const [open,setOpen] = useState(false)
+  const [pin,setPin] = useState('')
+  const [error,setError] = useState('')
+  const adminPin = String(family.adminPin || '')
+  const unlock = () => {
+    if (!adminPin) { setError('Admin-PIN saknas. Skapa en PIN i inställningar.'); return }
+    if (pin === adminPin) { setOpen(true); setError(''); setPin('') }
+    else setError('Fel PIN-kod')
+  }
+  if (open) return <div><div className="admin-unlock-row"><button onClick={()=>setOpen(false)}>Lås adminläge</button></div><Admin family={family} updateFamily={updateFamily}/></div>
+  return <section className="admin-gate panel">
+    <div className="admin-header compact">
+      <h2>Vuxenläge</h2>
+      <p>Admin är låst så barnen kan använda FamilyQuest utan att råka ändra uppdrag, belöningar eller XP.</p>
+    </div>
+    <div className="pin-row">
+      <input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} inputMode="numeric" type="password" placeholder="Admin-PIN" onKeyDown={e=>{ if(e.key==='Enter') unlock() }} />
+      <button className="primary" onClick={unlock}>Lås upp admin</button>
+    </div>
+    {error && <p className="small-warn">{error}</p>}
+  </section>
+}
+
 function Admin({ family, updateFamily }){
   const [tab,setTab]=useState('approve')
   const pending = []
@@ -258,20 +344,21 @@ function TasksEditor({ family, updateFamily }){ return <div className="admin-lis
 function RewardsEditor({ family, updateFamily }){ return <div className="admin-list">{family.rewards.map(r=><div className="edit-card" key={r.id}><div className="edit-grid"><label>ID<input value={r.id} onChange={e=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,id:e.target.value}:x)}))}/></label><label>Titel<input value={r.title} onChange={e=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,title:e.target.value}:x)}))}/></label><label>Kostnad<input type="number" value={r.cost} onChange={e=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,cost:+e.target.value}:x)}))}/></label><label>Minuter<input type="number" value={r.minutes||0} onChange={e=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,minutes:+e.target.value}:x)}))}/></label><label>Typ<select value={r.type||'normal'} onChange={e=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,type:e.target.value}:x)}))}><option value="screen">Skärm</option><option value="family">Familj</option><option value="normal">Normal</option></select></label></div><DayPicker value={r.days} onChange={days=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,days}:x)}))}/><label>Kräver uppdrag <select onChange={e=>e.target.value && updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,requiresTasks:[...(x.requiresTasks||[]),e.target.value]}:x)}))}><option value="">Välj uppdrags-ID</option>{family.tasks.map(t=><option value={t.id} key={t.id}>{t.id} - {t.title}</option>)}</select></label><p className="chips">{(r.requiresTasks||[]).map(id=><button key={id} onClick={()=>updateFamily(f=>({...f,rewards:f.rewards.map(x=>x.id===r.id?{...x,requiresTasks:x.requiresTasks.filter(y=>y!==id)}:x)}))}>{id} ×</button>)}</p><button className="danger" onClick={()=>updateFamily(f=>({...f,rewards:f.rewards.filter(x=>x.id!==r.id)}))}>Ta bort</button></div>)}<button onClick={()=>updateFamily(f=>({...f,rewards:[...f.rewards,{id:`beloning-${uid()}`,title:'Ny belöning',cost:50,minutes:0,days:daysAll,requiresTasks:[],type:'normal'}]}))}><Plus size={15}/> Lägg till belöning</button></div> }
 function RulesEditor({ family, updateFamily }){ const r=family.rules; const set=(k,v)=>updateFamily(f=>({...f,rules:{...f.rules,[k]:v}})); return <div className="admin-list form-card"><label><input type="checkbox" checked={!!r.requireToothbrushBeforeRewards} onChange={e=>set('requireToothbrushBeforeRewards',e.target.checked)}/> Inga belöningar innan tandborstning</label><label><input type="checkbox" checked={!!r.requireHomeworkBeforeTv} onChange={e=>set('requireHomeworkBeforeTv',e.target.checked)}/> TV/skärm endast efter läxor</label><label><input type="checkbox" checked={!!r.weekendBonus} onChange={e=>set('weekendBonus',e.target.checked)}/> Bonus-XP på helgen</label><label>Helgbonus % <input type="number" value={r.weekendBonusPercent||0} onChange={e=>set('weekendBonusPercent',+e.target.value)}/></label><label>Max skärmtid per dag <input type="number" value={r.maxScreenMinutesPerDay||0} onChange={e=>set('maxScreenMinutesPerDay',+e.target.value)}/></label><p className="hint">Olika regler per barn är förberett i datamodellen och kan byggas ut mer detaljerat senare.</p></div> }
 function LeagueEditor({ family, updateFamily }){ return <div className="admin-list"><p>Familjekod att dela med kompisar: <b>{family.code}</b></p>{(family.friendLeague||[]).map(fr=><div className="edit-row" key={fr.id}><input value={fr.avatar} onChange={e=>updateFamily(f=>({...f,friendLeague:f.friendLeague.map(x=>x.id===fr.id?{...x,avatar:e.target.value}:x)}))}/><input value={fr.name} onChange={e=>updateFamily(f=>({...f,friendLeague:f.friendLeague.map(x=>x.id===fr.id?{...x,name:e.target.value}:x)}))}/><input type="number" value={fr.leaguePoints||0} onChange={e=>updateFamily(f=>({...f,friendLeague:f.friendLeague.map(x=>x.id===fr.id?{...x,leaguePoints:+e.target.value}:x)}))}/><button className="danger" onClick={()=>updateFamily(f=>({...f,friendLeague:f.friendLeague.filter(x=>x.id!==fr.id)}))}><Trash2 size={15}/></button></div>)}<button onClick={()=>updateFamily(f=>({...f,friendLeague:[...(f.friendLeague||[]),{id:uid(),name:'Ny kompis',avatar:'🙂',leaguePoints:0,streak:0}]}))}><Plus size={15}/> Lägg till kompis manuellt</button></div> }
-function SettingsEditor({ family, updateFamily }){ return <div className="admin-list form-card"><label>Familjenamn <input value={family.name||''} onChange={e=>updateFamily(f=>({...f,name:e.target.value}))}/></label><label>Tema <select value={family.theme||'nintendo'} onChange={e=>updateFamily(f=>({...f,theme:e.target.value}))}><option value="nintendo">Nintendo/spel</option><option value="clean">Stilrent</option></select></label><label>Säsongsnamn <input value={family.season?.name||''} onChange={e=>updateFamily(f=>({...f,season:{...f.season,name:e.target.value}}))}/></label><label><input type="checkbox" checked={!!family.notifications?.parentApprovals} onChange={e=>updateFamily(f=>({...f,notifications:{...f.notifications,parentApprovals:e.target.checked}}))}/> Notis vid godkännande</label><label><input type="checkbox" checked={!!family.notifications?.rewardPurchases} onChange={e=>updateFamily(f=>({...f,notifications:{...f.notifications,rewardPurchases:e.target.checked}}))}/> Notis vid köp av belöning</label></div> }
+function SettingsEditor({ family, updateFamily }){ return <div className="admin-list form-card"><label>Familjenamn <input value={family.name||''} onChange={e=>updateFamily(f=>({...f,name:e.target.value}))}/></label><label>Admin-PIN <input value={family.adminPin||''} inputMode="numeric" onChange={e=>updateFamily(f=>({...f,adminPin:e.target.value.replace(/\D/g,'')}))} placeholder="Minst 4 siffror"/></label><label>Tema <select value={family.theme||'nintendo'} onChange={e=>updateFamily(f=>({...f,theme:e.target.value}))}><option value="nintendo">Nintendo/spel</option><option value="clean">Stilrent</option></select></label><label>Säsongsnamn <input value={family.season?.name||''} onChange={e=>updateFamily(f=>({...f,season:{...f.season,name:e.target.value}}))}/></label><label><input type="checkbox" checked={!!family.notifications?.parentApprovals} onChange={e=>updateFamily(f=>({...f,notifications:{...f.notifications,parentApprovals:e.target.checked}}))}/> Notis vid godkännande</label><label><input type="checkbox" checked={!!family.notifications?.rewardPurchases} onChange={e=>updateFamily(f=>({...f,notifications:{...f.notifications,rewardPurchases:e.target.checked}}))}/> Notis vid köp av belöning</label></div> }
 function Stats({family}){ const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10)}); const best=[...family.children].sort((a,b)=>(b.bestStreak||0)-(a.bestStreak||0))[0]; const most=[...family.children].sort((a,b)=>(b.leaguePoints||0)-(a.leaguePoints||0))[0]; return <div className="stats-grid"><div className="stat-card"><b><Flame/> Bästa streak</b><p>{best?.emoji} {best?.name}: {best?.bestStreak||0} dagar</p></div><div className="stat-card"><b><Trophy/> Mest LP</b><p>{most?.emoji} {most?.name}: {most?.leaguePoints||0} LP</p></div><div className="stat-card wide-stat"><b><BarChart3/> Chores heatmap</b><div className="heatmap">{days.map(d=>{const n=family.history.filter(h=>h.date===d && (h.type||'').includes('task')).length;return <span key={d} title={`${d}: ${n}`} className={n>4?'hot':n>1?'warm':''}><small>{d.slice(5)}</small><b>{n}</b></span>})}</div></div><div className="stat-card wide-stat"><b>Senaste händelser</b>{family.history.slice(0,8).map(h=><p key={h.id}>{h.date} · {h.title} · {h.xp} XP</p>)}</div></div> }
 
 export default function App(){
   const [user,setUser] = useState(null)
   const [family,setFamily] = useState(null)
   const [loading,setLoading] = useState(true)
-  useEffect(()=>{ if(!auth){ setLoading(false); setFamily(JSON.parse(localStorage.getItem('herrstromxp-family')||'null') || starterFamily('local','Lokal användare')); return } return onAuthStateChanged(auth, async u=>{ setUser(u); setLoading(false); if(u){ const ref=doc(db,'users',u.uid); const snap=await getDoc(ref); if(snap.exists()){ const famId=snap.data().familyId; return onSnapshot(doc(db,'families',famId), fs=>{ if(fs.exists()) setFamily(fs.data()) }) } else setFamily(null) } else setFamily(null) }) }, [])
-  const updateFamily = async updater => { const next = typeof updater === 'function' ? updater(family) : updater; setFamily(next); if(user && db) await setDoc(doc(db,'families',next.id), next, { merge:true }); else localStorage.setItem('herrstromxp-family', JSON.stringify(next)) }
+  useEffect(()=>{ if(!auth){ setLoading(false); setFamily(JSON.parse(localStorage.getItem('familyquest-family')||'null') || starterFamily('local','Lokal användare')); return } return onAuthStateChanged(auth, async u=>{ setUser(u); setLoading(false); if(u){ const ref=doc(db,'users',u.uid); const snap=await getDoc(ref); if(snap.exists()){ const famId=snap.data().familyId; return onSnapshot(doc(db,'families',famId), fs=>{ if(fs.exists()) setFamily(fs.data()) }) } else setFamily(null) } else setFamily(null) }) }, [])
+  const updateFamily = async updater => { const next = typeof updater === 'function' ? updater(family) : updater; setFamily(next); if(user && db) await setDoc(doc(db,'families',next.id), next, { merge:true }); else localStorage.setItem('familyquest-family', JSON.stringify(next)) }
   const login = () => auth ? signInWithPopup(auth, googleProvider) : alert('Firebase saknas. Lägg in GitHub secrets först.')
-  const createCloud = async (name, theme) => { const fam = {...starterFamily(user.uid, user.displayName), name, theme, onboardingDone:true}; await setDoc(doc(db,'families',fam.id), fam); await setDoc(doc(db,'users',user.uid), { familyId:fam.id, createdAt:serverTimestamp() }); setFamily(fam) }
+  const createCloud = async (setup) => { const fam = {...starterFamily(user.uid, user.displayName), name: setup.name, theme: setup.theme, adminPin: setup.pin, children: setup.children, onboardingDone:true}; await setDoc(doc(db,'families',fam.id), fam); await setDoc(doc(db,'users',user.uid), { familyId:fam.id, createdAt:serverTimestamp() }); setFamily(fam) }
   if (loading) return <div className="app"><div className="panel">Laddar...</div></div>
   if (!user && firebaseReady) return <Landing onLogin={login}/>
   if (user && !family) return <div className="app theme-nintendo"><Top user={user} family={family} onLogin={login} onLogout={()=>auth&&signOut(auth)} updateFamily={()=>{}}/><Onboarding user={user} onCreateCloud={createCloud}/></div>
   if (!family) return <Landing onLogin={login}/>
-  return <div className={`app theme-${family.theme || 'nintendo'}`}><Top user={user} family={family} onLogin={login} onLogout={()=>auth&&signOut(auth)} updateFamily={updateFamily}/><div className="layout"><main>{family.children.map(c=><ChildPanel key={c.id} family={family} child={c} updateFamily={updateFamily}/>)}</main><aside><LeagueCompact family={family}/><LeagueFull family={family}/><Admin family={family} updateFamily={updateFamily}/></aside></div></div>
+  if (user && family && !family.onboardingDone) return <div className={`app theme-${family.theme || 'nintendo'}`}><Top user={user} family={family} onLogin={login} onLogout={()=>auth&&signOut(auth)} updateFamily={updateFamily}/><Onboarding user={user} onCreateCloud={createCloud}/></div>
+  return <div className={`app theme-${family.theme || 'nintendo'}`}><Top user={user} family={family} onLogin={login} onLogout={()=>auth&&signOut(auth)} updateFamily={updateFamily}/><div className="layout"><main>{family.children.map(c=><ChildPanel key={c.id} family={family} child={c} updateFamily={updateFamily}/>)}</main><aside><LeagueCompact family={family}/><LeagueFull family={family}/><AdminGate family={family} updateFamily={updateFamily}/></aside></div></div>
 }
