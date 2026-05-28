@@ -1,16 +1,14 @@
-# HerrstromXP V6.1 komplett
+# HerrstromXP V7
 
-GitHub Pages + React + Firebase Auth/Firestore.
+Ny version med Google-login, onboarding, tema-växlare, barnprofiler, kompisliga, League Points, dashboard, achievements-grund, smarta regler, belöningar, admin-GUI och tydligare mobil/platta-layout.
 
-## GitHub secrets
-Skapa dessa i Settings -> Secrets and variables -> Actions:
-- VITE_FIREBASE_API_KEY
-- VITE_FIREBASE_AUTH_DOMAIN
-- VITE_FIREBASE_PROJECT_ID
-- VITE_FIREBASE_STORAGE_BUCKET
-- VITE_FIREBASE_MESSAGING_SENDER_ID
-- VITE_FIREBASE_APP_ID
-- VITE_FIREBASE_VAPID_KEY (valfri för push senare)
+## Viktigt
+- Lägg in Firebase secrets i GitHub Actions.
+- Aktivera Google Login i Firebase Authentication.
+- Lägg till `kingcool88.github.io` under Authorized domains.
+- Publicera `firestore.rules` i Firebase Firestore.
 
-## Pages
-Settings -> Pages -> Source: GitHub Actions.
+## GitHub-upload
+Om `.github` eller `public` inte följer med i web-upload:
+- skapa `.github/workflows/deploy.yml` manuellt i GitHub
+- skapa `public/.gitkeep` manuellt
